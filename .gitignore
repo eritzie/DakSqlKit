@@ -1,0 +1,16 @@
+# Query results / exports
+*.csv
+*.xlsx
+*.txt
+
+# SSMS / VS artifacts
+*.suo
+*.user
+*.dbmdl
+*.jfm
+bin/
+obj/
+
+# OS junk
+Thumbs.db
+.DS_Store
