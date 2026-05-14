@@ -51,7 +51,7 @@ function New-DakCheckResult {
         SqlQuery       = $SqlQuery
     }
 
-    $obj.PSObject.TypeNames.Insert(0, "SqlAuditKit.AuditResult")
+    $obj.PSObject.TypeNames.Insert(0, "DakAuditKit.AuditResult")
 
     $defaultProps = [string[]]("Framework", "CheckId", "CheckName", "SqlInstance", "AssessmentType", "Priority", "Status", "CurrentValue")
     $psDps = New-Object System.Management.Automation.PSPropertySet("DefaultDisplayPropertySet", $defaultProps)

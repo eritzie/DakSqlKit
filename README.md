@@ -2,7 +2,7 @@
 
 SQL Server security audit toolkit covering CIS, SOX, STIG, PCI-DSS, and SOC 2. Built on dbatools conventions — pipeline-friendly objects with Pass/Fail/Warning/Manual status and remediation guidance on every finding.
 
-## SqlAuditKit Module
+## DakAuditKit Module
 
 ### Install
 
@@ -16,7 +16,7 @@ Install-Module ImportExcel
 # Word export requires Microsoft Word (uses built-in COM automation — no extra module needed)
 
 # Import from repo
-Import-Module .\SqlAuditKit\SqlAuditKit.psd1
+Import-Module .\DakAuditKit\DakAuditKit.psd1
 ```
 
 ### Quick start
@@ -43,9 +43,9 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT0
 ## Module Structure
 
 ```
-SqlAuditKit/
-├── SqlAuditKit.psd1
-├── SqlAuditKit.psm1
+DakAuditKit/
+├── DakAuditKit.psd1
+├── DakAuditKit.psm1
 ├── public/
 │   ├── core/
 │   │   └── Invoke-DakAuditSuite.ps1        # Orchestrator
@@ -115,7 +115,7 @@ Test-DakCISBenchmark -SqlInstance SQLPROD01 -OutputPath C:\Audit
 | 7 — Encryption | 7.1 Symmetric key algorithms, 7.2 Asymmetric key size, 7.3 Backup encryption (L2), 7.4 Network encryption (L2), 7.5 TDE (L2) |
 | 8 — Additional | 8.1 SQL Browser service |
 
-### Result object (SqlAuditKit.AuditResult)
+### Result object (DakAuditKit.AuditResult)
 
 Default table display:
 
@@ -215,7 +215,7 @@ Each framework check function is scoped to its own control set — there is no s
 
 ## Standalone scripts (legacy)
 
-The original standalone collection scripts are retained in `SOX/` and `CIS/` for reference. See commit history for details.
+The original standalone collection scripts are retained in `Archive/` for reference. See commit history for details.
 
 ---
 
