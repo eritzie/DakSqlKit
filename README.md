@@ -16,7 +16,7 @@ Install-Module ImportExcel
 # Word export requires Microsoft Word (uses built-in COM automation — no extra module needed)
 
 # Import from repo
-Import-Module .\DakAuditKit\DakAuditKit.psd1
+Import-Module .\DakAuditKit.psd1
 ```
 
 ### Quick start
@@ -43,7 +43,6 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT0
 ## Module Structure
 
 ```
-DakAuditKit/
 ├── DakAuditKit.psd1
 ├── DakAuditKit.psm1
 ├── public/
@@ -63,9 +62,10 @@ DakAuditKit/
 ├── private/
 │   ├── New-DakCheckResult.ps1               # Result object factory
 │   └── Save-DakAuditResult.ps1             # Optional SQL persistence
-└── schema/
-    ├── Create-AuditDatabase.sql             # AuditKit DB, tables, and views
-    └── ControlCrossRef-Seed.sql            # Cross-framework control mappings
+├── schema/
+│   ├── Create-AuditDatabase.sql             # AuditKit DB, tables, and views
+│   └── ControlCrossRef-Seed.sql            # Cross-framework control mappings
+└── Archive/                                 # Legacy standalone scripts
 ```
 
 ---
