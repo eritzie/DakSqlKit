@@ -14,8 +14,8 @@
     PrivateData       = @{
         PSData = @{
             Tags       = @('SQL', 'SQLServer', 'Security', 'CIS', 'SOX', 'STIG', 'PCI', 'SOC2', 'dbatools', 'Audit', 'Compliance')
-            ProjectUri = 'https://github.com/ericritzie/SQL-Server-Security-Audit'
-            LicenseUri = 'https://github.com/ericritzie/SQL-Server-Security-Audit/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/ericritzie/DbAuditKit'
+            LicenseUri = 'https://github.com/ericritzie/DbAuditKit/blob/main/LICENSE'
         }
     }
 }
