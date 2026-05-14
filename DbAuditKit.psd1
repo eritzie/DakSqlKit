@@ -6,7 +6,7 @@
     Copyright         = '(c) 2026 Eric Ritzie. MIT License.'
     Description       = 'SQL Server security audit toolkit covering CIS, SOX, STIG, PCI-DSS, and SOC 2. Built on dbatools conventions — pipeline-friendly objects with Pass/Fail/Warning status and remediation guidance.'
     PowerShellVersion = '5.1'
-    RootModule        = 'DakAuditKit.psm1'
+    RootModule        = 'DbAuditKit.psm1'
     FunctionsToExport = @(
         'Invoke-DakAuditSuite',
         'Test-DakCISBenchmark'

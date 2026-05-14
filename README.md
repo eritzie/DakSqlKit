@@ -2,7 +2,7 @@
 
 SQL Server security audit toolkit covering CIS, SOX, STIG, PCI-DSS, and SOC 2. Built on dbatools conventions — pipeline-friendly objects with Pass/Fail/Warning/Manual status and remediation guidance on every finding.
 
-## DakAuditKit Module
+## DbAuditKit Module
 
 ### Install
 
@@ -16,7 +16,7 @@ Install-Module ImportExcel
 # Word export requires Microsoft Word (uses built-in COM automation — no extra module needed)
 
 # Import from repo
-Import-Module .\DakAuditKit.psd1
+Import-Module .\DbAuditKit.psd1
 ```
 
 ### Quick start
@@ -43,8 +43,8 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT0
 ## Module Structure
 
 ```
-├── DakAuditKit.psd1
-├── DakAuditKit.psm1
+├── DbAuditKit.psd1
+├── DbAuditKit.psm1
 ├── public/
 │   ├── core/
 │   │   └── Invoke-DakAuditSuite.ps1        # Orchestrator
