@@ -1,8 +1,8 @@
-# SQL-Server-Security-Audit
+# Database Audit Kit for SQL
 
 SQL Server security audit toolkit covering CIS, SOX, STIG, PCI-DSS, and SOC 2. Built on dbatools conventions — pipeline-friendly objects with Pass/Fail/Warning/Manual status and remediation guidance on every finding.
 
-## DbAuditKit Module
+## DakSqlKit Module
 
 ### Install
 
@@ -10,13 +10,8 @@ SQL Server security audit toolkit covering CIS, SOX, STIG, PCI-DSS, and SOC 2. B
 # Required
 Install-Module dbatools
 
-# Optional — needed for Excel export
-Install-Module ImportExcel
-
-# Word export requires Microsoft Word (uses built-in COM automation — no extra module needed)
-
 # Import from repo
-Import-Module .\DbAuditKit.psd1
+Import-Module .\DakSqlKit.psd1
 ```
 
 ### Quick start
@@ -29,7 +24,7 @@ Test-DakCISBenchmark -SqlInstance SQLPROD01
 Test-DakCISBenchmark -SqlInstance SQLPROD01 -FailedOnly
 
 # All frameworks via orchestrator (CIS implemented; others warn and skip)
-Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -OutputFormat Excel, HTML -OutputPath C:\Audit
+Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS
 
 # Pipe from registered servers
 Get-DbaRegisteredServer | Test-DakCISBenchmark -FailedOnly | Format-Table -AutoSize
@@ -43,8 +38,8 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT0
 ## Module Structure
 
 ```
-├── DbAuditKit.psd1
-├── DbAuditKit.psm1
+├── DakSqlKit.psd1
+├── DakSqlKit.psm1
 ├── public/
 │   ├── core/
 │   │   └── Invoke-DakAuditSuite.ps1        # Orchestrator
@@ -54,11 +49,6 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT0
 │   │   ├── Test-DakSTIGChecks.ps1           # Pending
 │   │   ├── Test-DakPCIChecks.ps1            # Pending
 │   │   └── Test-DakSOC2Checks.ps1           # Pending
-│   └── reports/
-│       ├── Export-DakAuditExcel.ps1         # ImportExcel — multi-sheet workbook
-│       ├── Export-DakAuditWord.ps1          # Word COM — formal .docx report
-│       ├── Export-DakAuditHTML.ps1          # Self-contained HTML — no extra deps
-│       └── Export-DakAuditJson.ps1          # Structured JSON with header + results
 ├── private/
 │   ├── New-DakCheckResult.ps1               # Result object factory
 │   └── Save-DakAuditResult.ps1             # Optional SQL persistence
@@ -72,15 +62,13 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT0
 
 ## Invoke-DakAuditSuite
 
-Main orchestrator. Calls the active framework check functions, collects all results, routes to export functions, and optionally persists to a central database.
+Main orchestrator. Calls the active framework check functions, collects all results, and optionally persists to a central database.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `-SqlInstance` | `string[]` | required | Target instances. Pipeline-compatible with `Get-DbaRegisteredServer`. |
 | `-SqlCredential` | `PSCredential` | — | SQL auth credential. Omit for Windows auth. |
 | `-Framework` | `string[]` | `All` | `CIS`, `SOX`, `STIG`, `PCI`, `SOC2`, or `All`. |
-| `-OutputFormat` | `string[]` | `Terminal, JSON` | `Terminal`, `JSON`, `XML`, `Excel`, `Word`, `HTML`. Multiple values accepted. |
-| `-OutputPath` | `string` | `.` | Required when OutputFormat includes Excel, Word, or HTML. |
 | `-FailedOnly` | `switch` | — | Return only Fail, Warning, and Manual results. |
 | `-Repository` | `string` | — | SQL Server instance for result persistence. |
 | `-RepositoryDatabase` | `string` | `AuditKit` | Persistence database name. |
@@ -97,9 +85,6 @@ Test-DakCISBenchmark -SqlInstance SQLPROD01
 
 # Section filter
 Test-DakCISBenchmark -SqlInstance SQLPROD01 -Section 2, 3
-
-# Export direct from check function
-Test-DakCISBenchmark -SqlInstance SQLPROD01 -OutputPath C:\Audit
 ```
 
 ### CIS section coverage
@@ -115,7 +100,7 @@ Test-DakCISBenchmark -SqlInstance SQLPROD01 -OutputPath C:\Audit
 | 7 — Encryption | 7.1 Symmetric key algorithms, 7.2 Asymmetric key size, 7.3 Backup encryption (L2), 7.4 Network encryption (L2), 7.5 TDE (L2) |
 | 8 — Additional | 8.1 SQL Browser service |
 
-### Result object (DakAuditKit.AuditResult)
+### Result object (DakSqlKit.AuditResult)
 
 Default table display:
 
@@ -152,21 +137,6 @@ Full properties (via `Format-List *`):
 #### Manual checks
 
 Checks classified `AssessmentType = 'Manual'` require human judgment to determine compliance. The tool collects the current configuration as evidence (`CurrentValue`) and sets `Status = 'Manual'` with a `Remediation` note describing what to review. These checks are included in `-FailedOnly` output and in report findings sections.
-
----
-
-## Export functions
-
-All accept pipeline input and return a `PSCustomObject` with `OutputFile` and `TotalRows` properties. Files are named `AuditKit_<instance>_<date>_<time>.<ext>`.
-
-| Function | Dependency | Output |
-|---|---|---|
-| `Export-DakAuditJson` | None | `.json` — structured file with header + results array |
-| `Export-DakAuditExcel` | ImportExcel | `.xlsx` — Summary, AllChecks, Failures worksheets |
-| `Export-DakAuditWord` | Microsoft Word | `.docx` — cover page, summary table, findings, appendix |
-| `Export-DakAuditHTML` | None | `.html` — self-contained report with scorecard, filter buttons, and collapsible T-SQL |
-
-`Export-DakAuditWord` uses Word COM automation and requires Microsoft Word to be installed. No additional PowerShell modules are needed.
 
 ---
 
@@ -208,8 +178,6 @@ Each framework check function is scoped to its own control set — there is no s
 | Module | Required by | Install |
 |---|---|---|
 | [dbatools](https://dbatools.io) | All check functions | `Install-Module dbatools` |
-| [ImportExcel](https://github.com/dfinke/ImportExcel) | `Export-DakAuditExcel` | `Install-Module ImportExcel` |
-| Microsoft Word | `Export-DakAuditWord` | Office install — no PowerShell module needed |
 
 ---
 

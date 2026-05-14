@@ -5,7 +5,7 @@ function Test-DakCISBenchmark {
 
     .DESCRIPTION
         Runs CIS Microsoft SQL Server 2025 Benchmark v1.0.0 checks. Returns one result
-        object per check per instance (type: DakAuditKit.AuditResult).
+        object per check per instance (type: DakSqlKit.AuditResult).
 
         AssessmentType on each result indicates whether the tool made the determination:
             Automated — pass/fail determined by the tool

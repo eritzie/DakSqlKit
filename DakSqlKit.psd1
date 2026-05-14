@@ -6,7 +6,7 @@
     Copyright         = '(c) 2026 Eric Ritzie. MIT License.'
     Description       = 'SQL Server security audit toolkit covering CIS, SOX, STIG, PCI-DSS, and SOC 2. Built on dbatools conventions — pipeline-friendly objects with Pass/Fail/Warning status and remediation guidance.'
     PowerShellVersion = '5.1'
-    RootModule        = 'DbAuditKit.psm1'
+    RootModule        = 'DakSqlKit.psm1'
     FunctionsToExport = @(
         'Invoke-DakAuditSuite',
         'Test-DakCISBenchmark'
@@ -14,8 +14,8 @@
     PrivateData       = @{
         PSData = @{
             Tags       = @('SQL', 'SQLServer', 'Security', 'CIS', 'SOX', 'STIG', 'PCI', 'SOC2', 'dbatools', 'Audit', 'Compliance')
-            ProjectUri = 'https://github.com/eritzie/DbAuditKit'
-            LicenseUri = 'https://github.com/eritzie/DbAuditKit/blob/main/LICENSE'
+            ProjectUri = 'https://github.com/eritzie/DakSqlKit'
+            LicenseUri = 'https://github.com/eritzie/DakSqlKit/blob/main/LICENSE'
         }
     }
 }

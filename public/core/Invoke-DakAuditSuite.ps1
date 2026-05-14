@@ -4,9 +4,9 @@ function Invoke-DakAuditSuite {
         Runs one or more security audit frameworks against SQL Server instances.
 
     .DESCRIPTION
-        Orchestrates the DakAuditKit framework check functions against one or more
+        Orchestrates the DakSqlKit framework check functions against one or more
         SQL Server instances. Returns pipeline-friendly PSCustomObjects (type
-        DakAuditKit.AuditResult) for consumption with Format-Table, Export-Csv,
+        DakSqlKit.AuditResult) for consumption with Format-Table, Export-Csv,
         Export-Excel (ImportExcel), ConvertTo-Json, Out-GridView, etc.
 
         When -Repository is specified, results are persisted to the AuditKit tracking
