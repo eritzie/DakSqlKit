@@ -10,7 +10,8 @@
     FunctionsToExport = @(
         'Invoke-DakAuditSuite',
         'Test-DakCISBenchmark',
-        'Test-DakDbConfig'
+        'Test-DakDbConfig',
+        'Test-DakSOXBenchmark'
     )
     PrivateData       = @{
         PSData = @{

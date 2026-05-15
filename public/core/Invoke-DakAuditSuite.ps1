@@ -19,7 +19,7 @@ function Invoke-DakAuditSuite {
         Supported frameworks and implementation status:
             CIS      — CIS Microsoft SQL Server 2025 Benchmark v1.0.0  (full — 48 checks)
             DbConfig — Instance/DB configuration health and security    (full — 92 checks)
-            SOX      — Sarbanes-Oxley IT general controls               (pending)
+            SOX      — Sarbanes-Oxley IT general controls               (full — 31 checks)
             STIG     — DISA SQL Server STIG                             (pending)
             PCI      — PCI-DSS v4.0                                     (pending)
             SOC2     — SOC 2 Trust Service Criteria                     (pending)
@@ -143,7 +143,17 @@ function Invoke-DakAuditSuite {
                 }
             }
 
-            foreach ($fw in @("SOX", "STIG", "PCI", "SOC2")) {
+            if ($runAll -or $Framework -contains "SOX") {
+                Write-Verbose "[$instance] Running SOX checks"
+                if ($saveResults) {
+                    $soxResults = Test-DakSOXBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly
+                    foreach ($r in $soxResults) { $allResults += $r }
+                } else {
+                    Test-DakSOXBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly -Quiet
+                }
+            }
+
+            foreach ($fw in @("STIG", "PCI", "SOC2")) {
                 if ($runAll -or $Framework -contains $fw) {
                     if ($fw -notin $notImplemented) {
                         Write-Warning "$fw checks are not yet implemented. Skipping."
