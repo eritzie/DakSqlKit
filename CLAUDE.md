@@ -7,6 +7,16 @@ SQL Server inventory and automation work.
 
 ## CRITICAL RULES
 
+### DBATOOLS FIRST
+
+Before writing any PowerShell that touches SQL Server, Windows services, OS
+settings, or AD in a SQL context — check https://docs.dbatools.io first.
+
+- **Cmdlet exists** → use it, no custom implementation
+- **No cmdlet exists** → comment in the script: `# No dbatools equivalent — using native PS`
+
+Reference: https://github.com/dataplat/dbatools
+
 ### NO RAW INVOKE-SQLCMD — ALWAYS USE DBATOOLS
 
 **ABSOLUTE RULE**: Never suggest `Invoke-Sqlcmd` when a dbatools equivalent exists.

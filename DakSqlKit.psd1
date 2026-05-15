@@ -9,7 +9,8 @@
     RootModule        = 'DakSqlKit.psm1'
     FunctionsToExport = @(
         'Invoke-DakAuditSuite',
-        'Test-DakCISBenchmark'
+        'Test-DakCISBenchmark',
+        'Test-DakDbConfig'
     )
     PrivateData       = @{
         PSData = @{

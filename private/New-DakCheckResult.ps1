@@ -3,7 +3,7 @@ function New-DakCheckResult {
     param (
         [string]$ComputerName,
         [string]$SqlInstance,
-        [ValidateSet("CIS", "SOX", "STIG", "PCI", "SOC2")]
+        [ValidateSet("CIS", "SOX", "STIG", "PCI", "SOC2", "DbConfig")]
         [string]$Framework,
         [string]$CheckId,
         [string]$CheckName,

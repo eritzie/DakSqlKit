@@ -112,23 +112,42 @@ VALUES
         $frameworkStr   = $frameworks   -join ", "
         $runBy          = "$env:USERDOMAIN\$env:USERNAME"
 
+        # ── Version lookup from the audited instance ─────────────────────────
+        $platform = "SQL Server"
+        $version  = [DBNull]::Value
+        if ($sqlInstances.Count -gt 0) {
+            try {
+                $splatVer = @{
+                    SqlInstance = $sqlInstances[0]
+                    Query       = "SELECT CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(50)) AS [Version];"
+                }
+                if ($SqlCredential) { $splatVer.SqlCredential = $SqlCredential }
+                $verRow  = Invoke-DbaQuery @splatVer
+                $version = $verRow.Version ?? [DBNull]::Value
+            } catch {
+                Write-Verbose "Could not retrieve version from $($sqlInstances[0]): $($_.Exception.Message)"
+            }
+        }
+
         # ── AuditRun header ───────────────────────────────────────────────────
         $runSql = @"
 INSERT INTO [$Schema].AuditRun
-    (RunId, RunDate, RunBy, SqlInstances, Frameworks, TotalChecks, PassCount, FailCount, WarnCount, ManuCount)
+    (RunId, RunDate, RunBy, SqlInstances, Frameworks, Platform, Version, TotalChecks, PassCount, FailCount, WarnCount, ManuCount)
 VALUES
-    (@RunId, @RunDate, @RunBy, @SqlInstances, @Frameworks, @TotalChecks, @PassCount, @FailCount, @WarnCount, @ManuCount);
+    (@RunId, @RunDate, @RunBy, @SqlInstances, @Frameworks, @Platform, @Version, @TotalChecks, @PassCount, @FailCount, @WarnCount, @ManuCount);
 "@
         try {
             $splatRun = @{
-                Query         = $runSql
+                Query           = $runSql
                 EnableException = $true
-                SqlParameters = @{
+                SqlParameters   = @{
                     RunId        = $runId
                     RunDate      = $runDate
                     RunBy        = $runBy
                     SqlInstances = $sqlInstanceStr
                     Frameworks   = $frameworkStr
+                    Platform     = $platform
+                    Version      = $version
                     TotalChecks  = $count
                     PassCount    = $passCount
                     FailCount    = $failCount

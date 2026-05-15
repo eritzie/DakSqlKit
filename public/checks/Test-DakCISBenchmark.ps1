@@ -341,32 +341,26 @@ function Test-DakCISBenchmark {
                     }
                 } catch { Write-Warning "[$instance] 2.10: $($_.Exception.Message)" }
 
-                # 2.11 TCP Port — use sys.dm_server_registry (CIS 2025 audit query).
+                # 2.11 TCP Port — fail if default port 1433 is in use.
                 try {
-                    $portQuery = @"
-IF (SELECT value_data FROM sys.dm_server_registry WHERE value_name = 'ListenOnAllIPs') = 1
-    SELECT COUNT(*) AS PortCount FROM sys.dm_server_registry
-    WHERE registry_key LIKE '%IPAll%' AND value_name LIKE '%Tcp%' AND value_data = '1433'
-ELSE
-    SELECT COUNT(*) AS PortCount FROM sys.dm_server_registry
-    WHERE value_name LIKE '%Tcp%' AND value_data = '1433';
-"@
-                    $portResult = Invoke-DbaQuery @connSplat -Query $portQuery -WarningAction SilentlyContinue
-                    $portCount  = if ($portResult) { $portResult.PortCount } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "2.11"
-                        CheckName      = "Non-Standard TCP Port"
-                        Category       = "Surface Area"
-                        AssessmentType = "Automated"
-                        Priority       = $cisPriority["2.11"]
-                        Status         = if ($portCount -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($portCount -eq 0) { "Non-default port configured" } else { "Port 1433 in use" }
-                        ExpectedValue  = "0 (no instances of port 1433)"
-                        Remediation    = "Change the SQL Server TCP port in SQL Server Configuration Manager > SQL Server Network Configuration > TCP/IP > IP Addresses > IPAll > TCP Port."
-                        Reference      = "CIS SQL Server 2025 v1.0.0 §2.11"
-                        SqlQuery       = $sql["2.11"]
+                    $tcpPort = Get-DbaTcpPort @connSplat -WarningAction SilentlyContinue | Select-Object -First 1
+                    if ($tcpPort) {
+                        $portNum    = $tcpPort.Port
+                        $splatCheck = @{
+                            CheckId        = "2.11"
+                            CheckName      = "Non-Standard TCP Port"
+                            Category       = "Surface Area"
+                            AssessmentType = "Automated"
+                            Priority       = $cisPriority["2.11"]
+                            Status         = if ($portNum -ne 1433) { "Pass" } else { "Fail" }
+                            CurrentValue   = $portNum.ToString()
+                            ExpectedValue  = "Any port other than 1433"
+                            Remediation    = "Change the SQL Server TCP port in SQL Server Configuration Manager > SQL Server Network Configuration > TCP/IP > IP Addresses > IPAll > TCP Port."
+                            Reference      = "CIS SQL Server 2025 v1.0.0 §2.11"
+                            SqlQuery       = $sql["2.11"]
+                        }
+                        & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
                 } catch { Write-Warning "[$instance] 2.11: $($_.Exception.Message)" }
 
                 # 2.12 Hide Instance
@@ -390,10 +384,12 @@ ELSE
                     }
                 } catch { Write-Warning "[$instance] 2.12: $($_.Exception.Message)" }
 
-                # 2.13 sa Disabled (check by SID 0x01 so rename is also caught)
+                # 2.13 sa Disabled — SID 0x01 lookup catches renamed sa accounts.
                 try {
-                    $saDisabled = Invoke-DbaQuery @connSplat -Query "SELECT name, is_disabled FROM sys.server_principals WHERE sid = 0x01 AND is_disabled = 0;" -WarningAction SilentlyContinue
-                    $enabled    = $saDisabled -and @($saDisabled).Count -gt 0
+                    $saLogin213 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
+                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
+                        Select-Object -First 1
+                    $enabled    = $saLogin213 -and -not $saLogin213.IsDisabled
                     $splatCheck = @{
                         CheckId        = "2.13"
                         CheckName      = "sa Login Disabled"
@@ -401,7 +397,7 @@ ELSE
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["2.13"]
                         Status         = if (-not $enabled) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($enabled) { "Enabled (name: $($saDisabled.name))" } else { "Disabled" }
+                        CurrentValue   = if ($enabled) { "Enabled (name: $($saLogin213.Name))" } else { "Disabled" }
                         ExpectedValue  = "Disabled"
                         Remediation    = "USE [master]; DECLARE @tsql nvarchar(max); SET @tsql = 'ALTER LOGIN ' + SUSER_NAME(0x01) + ' DISABLE'; EXEC (@tsql);"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §2.13"
@@ -410,18 +406,20 @@ ELSE
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
                 } catch { Write-Warning "[$instance] 2.13: $($_.Exception.Message)" }
 
-                # 2.14 sa Renamed
+                # 2.14 sa Renamed — SID 0x01 lookup so a renamed login is still caught.
                 try {
-                    $saName = Invoke-DbaQuery @connSplat -Query "SELECT name FROM sys.server_principals WHERE sid = 0x01;" -WarningAction SilentlyContinue
-                    if ($saName) {
+                    $saLogin214 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
+                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
+                        Select-Object -First 1
+                    if ($saLogin214) {
                         $splatCheck = @{
                             CheckId        = "2.14"
                             CheckName      = "sa Login Renamed"
                             Category       = "Surface Area"
                             AssessmentType = "Automated"
                             Priority       = $cisPriority["2.14"]
-                            Status         = if ($saName.name -ne "sa") { "Pass" } else { "Fail" }
-                            CurrentValue   = $saName.name
+                            Status         = if ($saLogin214.Name -ne "sa") { "Pass" } else { "Fail" }
+                            CurrentValue   = $saLogin214.Name
                             ExpectedValue  = "Not sa"
                             Remediation    = "ALTER LOGIN [sa] WITH NAME = [sa_disabled];"
                             Reference      = "CIS SQL Server 2025 v1.0.0 §2.14"
@@ -433,9 +431,9 @@ ELSE
 
                 # 2.15 AUTO_CLOSE — CIS 2025 scopes this to contained databases only.
                 try {
-                    $acQuery = "SELECT name, containment_desc, is_auto_close_on FROM sys.databases WHERE containment <> 0 AND is_auto_close_on = 1;"
-                    $acDbs   = Invoke-DbaQuery @connSplat -Query $acQuery -WarningAction SilentlyContinue
-                    $count   = if ($acDbs) { @($acDbs).Count } else { 0 }
+                    $acDbs = Get-DbaDatabase @connSplat -WarningAction SilentlyContinue |
+                        Where-Object { $_.ContainmentType -ne "None" -and $_.AutoClose -eq $true }
+                    $count = if ($acDbs) { @($acDbs).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "2.15"
                         CheckName      = "AUTO_CLOSE on Contained Databases"
@@ -443,7 +441,7 @@ ELSE
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["2.15"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { ($acDbs.name -join ", ") }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { ($acDbs.Name -join ", ") }
                         ExpectedValue  = "None (contained databases only)"
                         Remediation    = "ALTER DATABASE [dbname] SET AUTO_CLOSE OFF;"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §2.15"
@@ -454,7 +452,7 @@ ELSE
 
                 # 2.16 No login named 'sa'
                 try {
-                    $saExists = Invoke-DbaQuery @connSplat -Query "SELECT principal_id, name FROM sys.server_principals WHERE name = 'sa';" -WarningAction SilentlyContinue
+                    $saExists = Get-DbaLogin @connSplat -Login "sa" -WarningAction SilentlyContinue
                     $exists   = $saExists -and @($saExists).Count -gt 0
                     $splatCheck = @{
                         CheckId        = "2.16"
@@ -650,13 +648,13 @@ ELSE
                     }
                 } catch { Write-Warning "[$instance] 3.5-3.6 service account check: $($_.Exception.Message)" }
 
-                # 3.7 Full-Text Service Account — Manual; T-SQL only detects LocalSystem; admin membership requires manual review.
+                # 3.7 Full-Text Service Account — Manual; WMI detects LocalSystem but admin membership requires manual review.
                 try {
-                    $svcQuery37 = "SELECT servicename, service_account FROM sys.dm_server_services WHERE servicename LIKE '%FDLauncher%';"
-                    $svcRows37  = Invoke-DbaQuery @connSplat -Query $svcQuery37 -WarningAction SilentlyContinue
-                    if ($svcRows37) {
-                        foreach ($row in @($svcRows37)) {
-                            $isLocalSystem = $row.service_account -in ("NT AUTHORITY\SYSTEM", "LocalSystem", "NT AUTHORITY\LocalSystem")
+                    $ftServices = Get-DbaService -ComputerName $computerName -Type FullText -WarningAction SilentlyContinue |
+                        Where-Object { $_.InstanceName -eq $svcInstanceName }
+                    if ($ftServices) {
+                        foreach ($svc in @($ftServices)) {
+                            $isLocalSystem = $svc.StartName -in ("NT AUTHORITY\SYSTEM", "LocalSystem", "NT AUTHORITY\LocalSystem")
                             $splatCheck = @{
                                 CheckId        = "3.7"
                                 CheckName      = "Full-Text Service Account"
@@ -664,12 +662,12 @@ ELSE
                                 AssessmentType = "Manual"
                                 Priority       = $cisPriority["3.7"]
                                 Status         = if ($isLocalSystem) { "Fail" } else { "Manual" }
-                                CurrentValue   = $row.service_account
+                                CurrentValue   = $svc.StartName
                                 ExpectedValue  = "Dedicated low-privilege service account; not a member of Administrators"
                                 Remediation    = if ($isLocalSystem) {
                                     "Use SQL Server Configuration Manager to change to a dedicated low-privilege service account."
                                 } else {
-                                    "Verify that $($row.service_account) is not a member of the local Administrators group or any privileged AD group."
+                                    "Verify that $($svc.StartName) is not a member of the local Administrators group or any privileged AD group."
                                 }
                                 Reference      = "CIS SQL Server 2025 v1.0.0 §3.7"
                                 SqlQuery       = $sql["3.7"]
@@ -764,7 +762,9 @@ ELSE
 
                 # 3.12 SYSADMIN Role — Manual per CIS 2025. Collect membership for review.
                 try {
-                    $sysadmins = Invoke-DbaQuery @connSplat -Query "SELECT DISTINCT name, type_desc FROM master.sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT IN ('NT SERVICE\SQLWriter','NT SERVICE\Winmgmt','NT SERVICE\MSSQLSERVER','NT SERVICE\SQLSERVERAGENT') AND name NOT LIKE '##%';" -WarningAction SilentlyContinue
+                    $builtinSysFilter = @('NT SERVICE\SQLWriter','NT SERVICE\Winmgmt','NT SERVICE\MSSQLSERVER','NT SERVICE\SQLSERVERAGENT')
+                    $sysadmins = Get-DbaServerRoleMember @connSplat -ServerRole sysadmin -WarningAction SilentlyContinue |
+                        Where-Object { $_.Name -notin $builtinSysFilter -and $_.Name -notlike '##*' }
                     $count = if ($sysadmins) { @($sysadmins).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "3.12"
@@ -937,9 +937,10 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
                 } catch { Write-Warning "[$instance] 4.2: $($_.Exception.Message)" }
 
-                # 4.3 CHECK_POLICY
+                # 4.3 CHECK_POLICY — SMO PasswordPolicyEnforced maps to is_policy_checked.
                 try {
-                    $noPolicy = Invoke-DbaQuery @connSplat -Query "SELECT name, is_disabled FROM sys.sql_logins WHERE is_policy_checked = 0;" -WarningAction SilentlyContinue
+                    $noPolicy = Get-DbaLogin @connSplat -Type SQL -WarningAction SilentlyContinue |
+                        Where-Object { -not $_.PasswordPolicyEnforced }
                     $count    = if ($noPolicy) { @($noPolicy).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "4.3"
@@ -1202,11 +1203,11 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
                 } catch { Write-Warning "[$instance] 7.4: $($_.Exception.Message)" }
 
-                # 7.5 TDE (Level 2) — CIS 2025 audit: no user databases with is_encrypted != 1.
+                # 7.5 TDE (Level 2) — fail if any user database is not encrypted.
                 try {
-                    $q7_5  = "SELECT name FROM sys.databases WHERE database_id > 4 AND is_encrypted != 1;"
-                    $r7_5  = Invoke-DbaQuery @connSplat -Query $q7_5 -WarningAction SilentlyContinue
-                    $count = if ($r7_5) { @($r7_5).Count } else { 0 }
+                    $unencDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
+                        Where-Object { -not $_.EncryptionEnabled }
+                    $count = if ($unencDbs) { @($unencDbs).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "7.5"
                         CheckName      = "Transparent Data Encryption (Level 2)"

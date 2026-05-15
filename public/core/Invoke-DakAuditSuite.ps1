@@ -13,12 +13,16 @@ function Invoke-DakAuditSuite {
         database on that instance. The database and schema are created automatically
         on first use — no pre-requisite script required.
 
+        When -RepositoryDatabase is specified without -Repository, results are persisted
+        to that database on each audited instance itself (local persistence).
+
         Supported frameworks and implementation status:
-            CIS   — CIS Microsoft SQL Server 2025 Benchmark v1.0.0  (full — 48 checks)
-            SOX   — Sarbanes-Oxley IT general controls               (pending)
-            STIG  — DISA SQL Server STIG                             (pending)
-            PCI   — PCI-DSS v4.0                                     (pending)
-            SOC2  — SOC 2 Trust Service Criteria                     (pending)
+            CIS      — CIS Microsoft SQL Server 2025 Benchmark v1.0.0  (full — 48 checks)
+            DbConfig — Instance/DB configuration health and security    (full — 92 checks)
+            SOX      — Sarbanes-Oxley IT general controls               (pending)
+            STIG     — DISA SQL Server STIG                             (pending)
+            PCI      — PCI-DSS v4.0                                     (pending)
+            SOC2     — SOC 2 Trust Service Criteria                     (pending)
 
     .PARAMETER SqlInstance
         One or more SQL Server instances to audit. Accepts pipeline input by value
@@ -42,7 +46,9 @@ function Invoke-DakAuditSuite {
         audit repository.
 
     .PARAMETER RepositoryDatabase
-        Name of the AuditKit persistence database. Default: AuditKit.
+        Name of the AuditKit persistence database. Default: DBAOps.
+        When specified without -Repository, results are saved to this database on
+        each audited instance (local persistence mode).
 
     .PARAMETER RepositoryCredential
         SQL Server authentication credential for the repository instance.
@@ -64,6 +70,10 @@ function Invoke-DakAuditSuite {
         Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT01
 
     .EXAMPLE
+        # Persist to the audited instance itself (local persistence)
+        Invoke-DakAuditSuite -SqlInstance SQL-DEV-01 -Framework CIS -RepositoryDatabase DBAOps
+
+    .EXAMPLE
         # Persist and also consume results locally
         $results = Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS -Repository SQLAUDIT01
         $results | Where-Object Status -eq 'Fail' | Select-Object CheckId, Priority, Remediation
@@ -78,7 +88,7 @@ function Invoke-DakAuditSuite {
         [PSCredential]$SqlCredential,
 
         [Parameter()]
-        [ValidateSet("CIS", "SOX", "STIG", "PCI", "SOC2", "All")]
+        [ValidateSet("CIS", "SOX", "STIG", "PCI", "SOC2", "DbConfig", "All")]
         [string[]]$Framework = "All",
 
         [Parameter()]
@@ -104,6 +114,9 @@ function Invoke-DakAuditSuite {
         $notImplemented = @()
         $credSplat      = @{}
         if ($SqlCredential) { $credSplat.SqlCredential = $SqlCredential }
+        # Local persistence: -RepositoryDatabase supplied without -Repository → save to each audited instance
+        $useLocalRepo = $PSBoundParameters.ContainsKey('RepositoryDatabase') -and -not $PSBoundParameters.ContainsKey('Repository')
+        $saveResults  = $Repository -or $useLocalRepo
     }
 
     process {
@@ -112,13 +125,21 @@ function Invoke-DakAuditSuite {
 
             if ($runAll -or $Framework -contains "CIS") {
                 Write-Verbose "[$instance] Running CIS checks"
-                if ($Repository) {
-                    # Write-Host status lines stream in real-time; collect objects for persistence
+                if ($saveResults) {
                     $cisResults = Test-DakCISBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly
                     foreach ($r in $cisResults) { $allResults += $r }
                 } else {
-                    # Stream objects to the pipeline; suppress Write-Host for clean output
                     Test-DakCISBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly -Quiet
+                }
+            }
+
+            if ($runAll -or $Framework -contains "DbConfig") {
+                Write-Verbose "[$instance] Running DbConfig checks"
+                if ($saveResults) {
+                    $dbcResults = Test-DakDbConfig -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly
+                    foreach ($r in $dbcResults) { $allResults += $r }
+                } else {
+                    Test-DakDbConfig -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly -Quiet
                 }
             }
 
@@ -134,18 +155,19 @@ function Invoke-DakAuditSuite {
     }
 
     end {
-        if ($Repository -and $allResults.Count -gt 0) {
-            $repoSplat = @{
-                Repository = $Repository
-                Database   = $RepositoryDatabase
-                Schema     = $RepositorySchema
-            }
-            if ($RepositoryCredential) { $repoSplat.SqlCredential = $RepositoryCredential }
-
-            # One AuditRun record per audited instance for clean trend queries
+        if ($saveResults -and $allResults.Count -gt 0) {
+            # One AuditRun record per audited instance for clean trend queries.
+            # Local persistence mode: each group saves to its own SqlInstance.
             $allResults | Group-Object SqlInstance | ForEach-Object {
-                $grp = $_.Group
-                Write-Host "Saving $($grp.Count) results for $($_.Name) to [$Repository].[$RepositoryDatabase].[$RepositorySchema]..." -ForegroundColor Cyan
+                $grp        = $_.Group
+                $repoTarget = if ($Repository) { $Repository } else { $_.Name }
+                $repoSplat  = @{
+                    Repository = $repoTarget
+                    Database   = $RepositoryDatabase
+                    Schema     = $RepositorySchema
+                }
+                if ($RepositoryCredential) { $repoSplat.SqlCredential = $RepositoryCredential }
+                Write-Host "Saving $($grp.Count) results for $($_.Name) to [$repoTarget].[$RepositoryDatabase].[$RepositorySchema]..." -ForegroundColor Cyan
                 try {
                     $grp | Save-DakAuditResult @repoSplat
                 } catch {

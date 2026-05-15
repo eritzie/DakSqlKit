@@ -14,7 +14,7 @@ function Initialize-DakRepository {
         [string]$SqlInstance,
 
         [Parameter()]
-        [string]$Database = "DBAOps",
+        [string]$Database = "DbAuditKit",
 
         [Parameter()]
         [string]$Schema = "audit",
@@ -53,6 +53,8 @@ BEGIN
         RunBy        NVARCHAR(255)    NOT NULL,
         SqlInstances NVARCHAR(MAX)    NOT NULL,
         Frameworks   NVARCHAR(255)    NULL,
+        Platform     NVARCHAR(100)    NULL,
+        Version      NVARCHAR(50)     NULL,
         TotalChecks  INT              NULL,
         PassCount    INT              NULL,
         FailCount    INT              NULL,
@@ -90,6 +92,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('[$Schema].
 
 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('[$Schema].AuditResult') AND name = N'Priority')
     ALTER TABLE [$Schema].AuditResult ADD Priority NVARCHAR(20) NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('[$Schema].AuditRun') AND name = N'Platform')
+    ALTER TABLE [$Schema].AuditRun ADD Platform NVARCHAR(100) NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('[$Schema].AuditRun') AND name = N'Version')
+    ALTER TABLE [$Schema].AuditRun ADD Version NVARCHAR(50) NULL;
 "@
 
     Invoke-DbaQuery @dbSplat -Query $tableSql -EnableException
