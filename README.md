@@ -24,24 +24,28 @@ Test-DakDbConfig -SqlInstance SQLPROD01
 # SOX IT General Controls — all 31 checks
 Test-DakSOXBenchmark -SqlInstance SQLPROD01
 
+# PCI DSS v4.0.1 — all 34 checks
+Test-DakPCIBenchmark -SqlInstance SQLPROD01
+
 # Failures and manual checks only
 Test-DakCISBenchmark -SqlInstance SQLPROD01 -FailedOnly
 
 # Specific sections only
 Test-DakDbConfig -SqlInstance SQLPROD01 -Section 4        # Security only
 Test-DakSOXBenchmark -SqlInstance SQLPROD01 -Section 1,2  # Access + Audit only
+Test-DakPCIBenchmark -SqlInstance SQLPROD01 -Section 3,4  # Data protection + Audit only
 
 # Run all implemented frameworks via orchestrator
 Invoke-DakAuditSuite -SqlInstance SQLPROD01
 
 # Pipe from registered servers
-Get-DbaRegisteredServer -Group Production | Invoke-DakAuditSuite -Framework CIS, SOX -FailedOnly
+Get-DbaRegisteredServer -Group Production | Invoke-DakAuditSuite -Framework CIS, SOX, PCI -FailedOnly
 
 # Persist results to a centralized audit repository
-Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS, SOX -Repository SQLAUDIT01
+Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS, SOX, PCI -Repository SQLAUDIT01
 
 # Export to Excel (requires ImportExcel module)
-Test-DakCISBenchmark -SqlInstance SQLPROD01 | Export-Excel -Path .\CIS-$(Get-Date -f yyyyMMdd).xlsx -AutoSize
+Test-DakPCIBenchmark -SqlInstance SQLPROD01 | Export-Excel -Path .\PCI-$(Get-Date -f yyyyMMdd).xlsx -AutoSize
 ```
 
 ---
@@ -57,6 +61,7 @@ public/
 └── checks/
     ├── Test-DakCISBenchmark.ps1          # Full — CIS SQL Server 2025 v1.0.0 (48 checks)
     ├── Test-DakDbConfig.ps1              # Full — Instance/DB health and security (92 checks)
+    ├── Test-DakPCIBenchmark.ps1          # Full — PCI DSS v4.0.1 (34 checks)
     └── Test-DakSOXBenchmark.ps1          # Full — SOX IT General Controls (31 checks)
 private/
 ├── New-DakCheckResult.ps1               # Result object factory
@@ -81,7 +86,7 @@ Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS, SOX -Repository SQLA
 |---|---|---|---|
 | `-SqlInstance` | `string[]` | required | Target instances. Pipeline-compatible with `Get-DbaRegisteredServer`. |
 | `-SqlCredential` | `PSCredential` | — | SQL auth credential. Omit for Windows auth. |
-| `-Framework` | `string[]` | `All` | `CIS`, `DbConfig`, `SOX`, `STIG`, `PCI`, `SOC2`, or `All`. |
+| `-Framework` | `string[]` | `All` | `CIS`, `DbConfig`, `PCI`, `SOX`, `STIG`, `SOC2`, or `All`. |
 | `-FailedOnly` | `switch` | — | Return only Fail, Warning, and Manual results. |
 | `-Repository` | `string` | — | SQL Server instance for centralized result persistence. |
 | `-RepositoryDatabase` | `string` | `DBAOps` | Persistence database name. Created automatically if absent. |
@@ -139,6 +144,20 @@ SOX Section 404 IT general controls for SQL Server. One result object per check 
 
 ---
 
+## Test-DakPCIBenchmark
+
+PCI DSS v4.0.1 database infrastructure controls for SQL Server. One result object per check per instance. Sections 1–5 selectable via `-Section`.
+
+| Section | Checks |
+|---|---|
+| §1 — Secure Configuration (Req 2) | PCI-1.1 sa disabled, PCI-1.2 sa renamed, PCI-1.3 xp_cmdshell disabled, PCI-1.4 OLE Automation disabled, PCI-1.5 Ad hoc distributed queries disabled, PCI-1.6 CLR strict security, PCI-1.7 SQL Browser disabled, PCI-1.8 Non-standard TCP port, PCI-1.9 Hide instance enabled |
+| §2 — Access Control (Req 7–8) | PCI-2.1 Windows-only auth, PCI-2.2 BUILTIN groups absent, PCI-2.3 Guest access revoked, PCI-2.4 Public role no excess permissions, PCI-2.5 No orphaned users, PCI-2.6 CHECK_POLICY enforced, PCI-2.7 Privileged login CHECK_EXPIRATION, PCI-2.8 MUST_CHANGE logins, PCI-2.9 Sysadmin membership review (Manual) |
+| §3 — Data Protection (Req 3–4) | PCI-3.1 TDE scope review (Manual), PCI-3.2 Symmetric key algorithms AES only, PCI-3.3 Asymmetric key size min 2048-bit, PCI-3.4 Network encryption enforced, PCI-3.5 Backup encryption |
+| §4 — Audit & Logging (Req 10) | PCI-4.1 SQL Server Audit — 6 required PCI action groups, PCI-4.2 Login audit level, PCI-4.3 Error log retention min 12, PCI-4.4 Default trace enabled, PCI-4.5 Audit role membership changes, PCI-4.6 Audit DDL/schema changes |
+| §5 — Vulnerability Management (Req 6) | PCI-5.1 Patch level (Req 6.3.3), PCI-5.2 DBCC CHECKDB within 7 days, PCI-5.3 All user databases accessible, PCI-5.4 Page verify CHECKSUM, PCI-5.5 No UNSAFE CLR assemblies |
+
+---
+
 ## Result object (DakSqlKit.AuditResult)
 
 Default table display:
@@ -151,6 +170,9 @@ CIS        2.2       CLR Integration                SQLPROD01    Automated      
 DbConfig   DC-4.7    Authentication Mode            SQLPROD01    Automated       Fail     Mixed Mode
 SOX        SOX-1.8   Sysadmin Membership Review     SQLPROD01    Manual          Manual   3 non-system accounts
 SOX        SOX-4.1   Full Backup Within 24 Hours    SQLPROD01    Automated       Pass     All databases backed up
+PCI        PCI-1.3   xp_cmdshell Disabled           SQLPROD01    Automated       Pass     0
+PCI        PCI-3.1   TDE Scope Review               SQLPROD01    Manual          Manual   2 user database(s) without TDE
+PCI        PCI-5.1   Patch Level — Req 6.3.3        SQLPROD01    Automated       Fail     15.0.4280.7
 ```
 
 Full properties (via `Format-List *` or `Export-Excel`):
@@ -161,7 +183,7 @@ Full properties (via `Format-List *` or `Export-Excel`):
 | `RunBy` | `DOMAIN\username` that ran the audit |
 | `ComputerName` | Host name |
 | `SqlInstance` | Instance name |
-| `Framework` | `CIS`, `DbConfig`, or `SOX` |
+| `Framework` | `CIS`, `DbConfig`, `PCI`, or `SOX` |
 | `CheckId` | Framework control number |
 | `CheckName` | Human-readable check name |
 | `Category` | Section grouping (e.g., Surface Area, Audit, Access Control) |
@@ -207,9 +229,9 @@ Two reporting views are created automatically:
 |---|---|---|
 | CIS | Complete | 48 — CIS Microsoft SQL Server 2025 Benchmark v1.0.0 |
 | DbConfig | Complete | 92 — Instance and database configuration health and security |
+| PCI | Complete | 34 — PCI DSS v4.0.1 database infrastructure controls |
 | SOX | Complete | 31 — Sarbanes-Oxley Section 404 IT general controls |
 | STIG | Pending | DISA SQL Server STIG |
-| PCI | Pending | PCI-DSS v4.0 |
 | SOC 2 | Pending | Trust Service Criteria CC6.x |
 
 ---

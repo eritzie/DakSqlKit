@@ -21,7 +21,7 @@ function Invoke-DakAuditSuite {
             DbConfig — Instance/DB configuration health and security    (full — 92 checks)
             SOX      — Sarbanes-Oxley IT general controls               (full — 31 checks)
             STIG     — DISA SQL Server STIG                             (pending)
-            PCI      — PCI-DSS v4.0                                     (pending)
+            PCI      — PCI DSS v4.0.1                                    (full — 34 checks)
             SOC2     — SOC 2 Trust Service Criteria                     (pending)
 
     .PARAMETER SqlInstance
@@ -153,7 +153,17 @@ function Invoke-DakAuditSuite {
                 }
             }
 
-            foreach ($fw in @("STIG", "PCI", "SOC2")) {
+            if ($runAll -or $Framework -contains "PCI") {
+                Write-Verbose "[$instance] Running PCI checks"
+                if ($saveResults) {
+                    $pciResults = Test-DakPCIBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly
+                    foreach ($r in $pciResults) { $allResults += $r }
+                } else {
+                    Test-DakPCIBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly -Quiet
+                }
+            }
+
+            foreach ($fw in @("STIG", "SOC2")) {
                 if ($runAll -or $Framework -contains $fw) {
                     if ($fw -notin $notImplemented) {
                         Write-Warning "$fw checks are not yet implemented. Skipping."

@@ -11,6 +11,7 @@
         'Invoke-DakAuditSuite',
         'Test-DakCISBenchmark',
         'Test-DakDbConfig',
+        'Test-DakPCIBenchmark',
         'Test-DakSOXBenchmark'
     )
     PrivateData       = @{
