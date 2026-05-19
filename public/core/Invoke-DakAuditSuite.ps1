@@ -20,7 +20,7 @@ function Invoke-DakAuditSuite {
             CIS      — CIS Microsoft SQL Server 2025 Benchmark v1.0.0  (full — 48 checks)
             DbConfig — Instance/DB configuration health and security    (full — 92 checks)
             SOX      — Sarbanes-Oxley ITGC (AC/CM/OP/BA/LS/AL)           (full — 40 checks)
-            STIG     — DISA SQL Server STIG                             (pending)
+            STIG     — DISA SQL Server 2022 STIG V1R4/V1R3               (full — 52 checks)
             PCI      — PCI DSS v4.0.1                                    (full — 34 checks)
             SOC2     — SOC 2 TSC CC1/CC4–CC9 (database-relevant)          (full — 31 checks)
 
@@ -111,7 +111,6 @@ function Invoke-DakAuditSuite {
         $ErrorActionPreference = "Stop"
         $runAll         = $Framework -contains "All"
         $allResults     = @()
-        $notImplemented = @()
         $credSplat      = @{}
         if ($SqlCredential) { $credSplat.SqlCredential = $SqlCredential }
         # Local persistence: -RepositoryDatabase supplied without -Repository → save to each audited instance
@@ -173,12 +172,13 @@ function Invoke-DakAuditSuite {
                 }
             }
 
-            foreach ($fw in @("STIG")) {
-                if ($runAll -or $Framework -contains $fw) {
-                    if ($fw -notin $notImplemented) {
-                        Write-Warning "$fw checks are not yet implemented. Skipping."
-                        $notImplemented += $fw
-                    }
+            if ($runAll -or $Framework -contains "STIG") {
+                Write-Verbose "[$instance] Running STIG checks"
+                if ($saveResults) {
+                    $stigResults = Test-DakSTIGBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly
+                    foreach ($r in $stigResults) { $allResults += $r }
+                } else {
+                    Test-DakSTIGBenchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly -Quiet
                 }
             }
         }

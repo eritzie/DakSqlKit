@@ -21,7 +21,7 @@ Test-DakCISBenchmark -SqlInstance SQLPROD01
 # DbConfig health — all 92 checks
 Test-DakDbConfig -SqlInstance SQLPROD01
 
-# SOX IT General Controls — all 31 checks
+# SOX IT General Controls — all 40 checks
 Test-DakSOXBenchmark -SqlInstance SQLPROD01
 
 # PCI DSS v4.0.1 — all 34 checks
@@ -30,26 +30,30 @@ Test-DakPCIBenchmark -SqlInstance SQLPROD01
 # SOC 2 Trust Services Criteria — all 32 checks
 Test-DakSOC2Benchmark -SqlInstance SQLPROD01
 
+# DISA STIG SQL Server 2022 — all 52 checks
+Test-DakSTIGBenchmark -SqlInstance SQLPROD01
+
 # Failures and manual checks only
 Test-DakCISBenchmark -SqlInstance SQLPROD01 -FailedOnly
 
 # Specific sections only
-Test-DakDbConfig -SqlInstance SQLPROD01 -Section 4        # Security only
-Test-DakSOXBenchmark -SqlInstance SQLPROD01 -Section 1,2  # Access + Audit only
-Test-DakPCIBenchmark -SqlInstance SQLPROD01 -Section 3,4  # Data protection + Audit only
-Test-DakSOC2Benchmark -SqlInstance SQLPROD01 -Section 1,5 # Access + Confidentiality only
+Test-DakDbConfig -SqlInstance SQLPROD01 -Section 4          # Security only
+Test-DakSOXBenchmark -SqlInstance SQLPROD01 -Section 1,2    # Access + Audit only
+Test-DakPCIBenchmark -SqlInstance SQLPROD01 -Section 3,4    # Data protection + Audit only
+Test-DakSOC2Benchmark -SqlInstance SQLPROD01 -Section 1,5   # Access + Confidentiality only
+Test-DakSTIGBenchmark -SqlInstance SQLPROD01 -Section 2,4   # Audit + Encryption only
 
 # Run all implemented frameworks via orchestrator
 Invoke-DakAuditSuite -SqlInstance SQLPROD01
 
 # Pipe from registered servers
-Get-DbaRegisteredServer -Group Production | Invoke-DakAuditSuite -Framework CIS, SOX, PCI, SOC2 -FailedOnly
+Get-DbaRegisteredServer -Group Production | Invoke-DakAuditSuite -Framework CIS, SOX, PCI, SOC2, STIG -FailedOnly
 
 # Persist results to a centralized audit repository
-Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS, SOX, PCI, SOC2 -Repository SQLAUDIT01
+Invoke-DakAuditSuite -SqlInstance SQLPROD01 -Framework CIS, SOX, PCI, SOC2, STIG -Repository SQLAUDIT01
 
 # Export to Excel (requires ImportExcel module)
-Test-DakSOC2Benchmark -SqlInstance SQLPROD01 | Export-Excel -Path .\SOC2-$(Get-Date -f yyyyMMdd).xlsx -AutoSize
+Test-DakSTIGBenchmark -SqlInstance SQLPROD01 | Export-Excel -Path .\STIG-$(Get-Date -f yyyyMMdd).xlsx -AutoSize
 ```
 
 ---
@@ -67,7 +71,8 @@ public/
     ├── Test-DakDbConfig.ps1              # Full — Instance/DB health and security (92 checks)
     ├── Test-DakPCIBenchmark.ps1          # Full — PCI DSS v4.0.1 (34 checks)
     ├── Test-DakSOC2Benchmark.ps1         # Full — SOC 2 Trust Services Criteria (32 checks)
-    └── Test-DakSOXBenchmark.ps1          # Full — SOX IT General Controls (31 checks)
+    ├── Test-DakSOXBenchmark.ps1          # Full — SOX IT General Controls (40 checks)
+    └── Test-DakSTIGBenchmark.ps1         # Full — DISA STIG SQL Server 2022 V1R4/V1R3 (52 checks)
 private/
 ├── New-DakCheckResult.ps1               # Result object factory
 ├── Save-DakAuditResult.ps1              # Persistence — writes to audit repository
@@ -177,6 +182,23 @@ AICPA SOC 2 Trust Services Criteria for SQL Server database infrastructure. One 
 
 ---
 
+## Test-DakSTIGBenchmark
+
+DISA STIG for Microsoft SQL Server 2022, Instance STIG V1R4 and Database STIG V1R3. One result object per check per instance. Sections 1–6 selectable via `-Section`.
+
+Registry-based checks (TLS, FIPS, telemetry) use WinRM (`Invoke-Command`). If WinRM is unavailable on a target, those checks fall back to `Manual` status rather than erroring.
+
+| Section | Checks |
+|---|---|
+| §1 — Authentication & Access Control | V-271264 SPN/Kerberos, V-271265 Windows-only auth, V-271306 Contained DB Windows principals, V-271307 SQL login password policy, V-271309 Force encryption, V-271400 MUST_CHANGE on recovery, V-274444 sa disabled, V-274445 sa renamed |
+| §2 — Audit & Logging | V-271270 Audit configured/enabled, V-271272 SCHEMA_OBJECT_ACCESS_GROUP, V-271273 Audit starts at startup, V-271345 Real-time audit failure alert (Manual), V-271351 30 required audit action groups, V-271370 SCHEMA_OBJECT_CHANGE_GROUP, V-271375 Login/logoff groups, V-271381 No audit filters excluding direct access |
+| §3 — Surface Area Reduction | V-271290 Sample databases removed, V-271292 Replication XPs, V-271293 External Scripts, V-271295 Remote Data Archive, V-271296 Allow Polybase Export, V-271297 Hadoop Connectivity, V-271298 Remote Access, V-271299 Linked servers, V-271300 Non-standard extended SPs, V-271301/V-271359 CLR disabled, V-271302 xp_cmdshell, V-271303 Port compliance (Manual), V-271304 Non-standard protocols, V-274446 Startup stored procs, V-274450 Filestream, V-274451 OLE Automation, V-274452 User Options |
+| §4 — Encryption & Transport Security | V-271310 TLS 1.2 required; TLS 1.0/1.1/SSL disabled, V-271314 FIPS 140-2/3 enabled, V-271324 TDE status (Manual), V-274447 Mirroring endpoint AES, V-274448 Service Broker endpoint AES, V-274449 xp_reg* permissions revoked |
+| §5 — Operational | V-271328 Common criteria compliance, V-271334 Error message masking TF3625 (Manual), V-271342 Credentials/proxies restricted, V-271345 Audit failure alerts (Manual), V-271358 Unique service accounts, V-271365 Supported version, V-271387 SQL Browser disabled, V-271388 Telemetry audit directory, V-271389 Customer feedback disabled |
+| §6 — Database-Level Checks | V-271118 SQL auth DB users authorized, V-271122 Trustworthy databases, V-271147 DDL permissions restricted, V-271168 Backup/recovery evidence (Manual), V-271170 Database Master Key encryption, V-271188 EXECUTE AS usage, V-271195 DB owners not in fixed server roles, V-271199 NSA-approved crypto (Manual), V-271201 TDE at database level (Manual), V-283667 No computer accounts in user DBs |
+
+---
+
 ## Result object (DakSqlKit.AuditResult)
 
 Default table display:
@@ -195,6 +217,9 @@ PCI        PCI-5.1    Patch Level — Req 6.3.3        SQLPROD01    Automated   
 SOC2       SOC2-1.10  Sysadmin Membership Review     SQLPROD01    Manual          Manual   2 non-system accounts
 SOC2       SOC2-4.1   Full Backup Within 24 Hours    SQLPROD01    Automated       Pass     All user databases backed up within 24h
 SOC2       SOC2-5.5   No UNSAFE CLR Assemblies       SQLPROD01    Automated       Pass     None
+STIG       V-271265   Windows-Only Authentication    SQLPROD01    Automated       Pass     Windows Authentication
+STIG       V-271351   30 Required Audit Action Groups SQLPROD01   Automated       Fail     Missing (3): BACKUP_RESTORE_GROUP, DBCC_GROUP, LOGOUT_GROUP
+STIG       V-271310   TLS 1.2 Required               SQLPROD01    Automated       Fail     TLS 1.0\Server Enabled != 0 (was 1)
 ```
 
 Full properties (via `Format-List *` or `Export-Excel`):
@@ -205,7 +230,7 @@ Full properties (via `Format-List *` or `Export-Excel`):
 | `RunBy` | `DOMAIN\username` that ran the audit |
 | `ComputerName` | Host name |
 | `SqlInstance` | Instance name |
-| `Framework` | `CIS`, `DbConfig`, `PCI`, `SOC2`, or `SOX` |
+| `Framework` | `CIS`, `DbConfig`, `PCI`, `SOC2`, `SOX`, or `STIG` |
 | `CheckId` | Framework control number |
 | `CheckName` | Human-readable check name |
 | `Category` | Section grouping (e.g., Logical Access, Monitoring, Confidentiality) |
@@ -253,8 +278,8 @@ Two reporting views are created automatically:
 | DbConfig | Complete | 92 — Instance and database configuration health and security |
 | PCI | Complete | 34 — PCI DSS v4.0.1 database infrastructure controls |
 | SOC 2 | Complete | 32 — AICPA Trust Services Criteria CC6/CC7/CC8/A1/C1 |
-| SOX | Complete | 31 — Sarbanes-Oxley Section 404 IT general controls |
-| STIG | Pending | DISA SQL Server 2022 STIG |
+| SOX | Complete | 40 — Sarbanes-Oxley Section 404 IT general controls |
+| STIG | Complete | 52 — DISA SQL Server 2022 Instance STIG V1R4 + Database STIG V1R3 |
 
 ---
 
