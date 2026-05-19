@@ -1,3 +1,10 @@
+. "$PSScriptRoot\Private\AccessControl.ps1"
+. "$PSScriptRoot\Private\Audit.ps1"
+. "$PSScriptRoot\Private\BackupIntegrity.ps1"
+. "$PSScriptRoot\Private\Configuration.ps1"
+. "$PSScriptRoot\Private\Encryption.ps1"
+. "$PSScriptRoot\Private\Operations.ps1"
+
 function Test-DakCISBenchmark {
     <#
     .SYNOPSIS
@@ -258,6 +265,8 @@ function Test-DakCISBenchmark {
             # ── §2 Surface Area Reduction ──────────────────────────────
             if (ShouldRun "2") {
                 Write-Verbose "[$instance] §2 Surface Area"
+                $saData2 = Get-SaLogin      -ctx $connSplat
+                $netCfg2 = Get-NetworkConfig -ctx $connSplat
 
                 $configMap = [ordered]@{
                     AdHocDistributedQueriesEnabled = @{ CheckId="2.1";  Priority=$cisPriority["2.1"];  CheckName="Ad Hoc Distributed Queries";   Expected=0; Fix="EXEC sp_configure 'Ad Hoc Distributed Queries', 0; RECONFIGURE;";         Ref="CIS SQL Server 2025 v1.0.0 §2.1"  }
@@ -343,17 +352,16 @@ function Test-DakCISBenchmark {
 
                 # 2.11 TCP Port — fail if default port 1433 is in use.
                 try {
-                    $tcpPort = Get-DbaTcpPort @connSplat -WarningAction SilentlyContinue | Select-Object -First 1
-                    if ($tcpPort) {
-                        $portNum    = $tcpPort.Port
+                    $portNum2 = $netCfg2.TcpPort
+                    if ($portNum2 -ge 0) {
                         $splatCheck = @{
                             CheckId        = "2.11"
                             CheckName      = "Non-Standard TCP Port"
                             Category       = "Surface Area"
                             AssessmentType = "Automated"
                             Priority       = $cisPriority["2.11"]
-                            Status         = if ($portNum -ne 1433) { "Pass" } else { "Fail" }
-                            CurrentValue   = $portNum.ToString()
+                            Status         = if ($portNum2 -ne 1433) { "Pass" } else { "Fail" }
+                            CurrentValue   = $portNum2.ToString()
                             ExpectedValue  = "Any port other than 1433"
                             Remediation    = "Change the SQL Server TCP port in SQL Server Configuration Manager > SQL Server Network Configuration > TCP/IP > IP Addresses > IPAll > TCP Port."
                             Reference      = "CIS SQL Server 2025 v1.0.0 §2.11"
@@ -386,18 +394,16 @@ function Test-DakCISBenchmark {
 
                 # 2.13 sa Disabled — SID 0x01 lookup catches renamed sa accounts.
                 try {
-                    $saLogin213 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
-                        Select-Object -First 1
-                    $enabled    = $saLogin213 -and -not $saLogin213.IsDisabled
+                    $saLogin2  = $saData2.Login
+                    $enabled2  = $saLogin2 -and -not $saLogin2.IsDisabled
                     $splatCheck = @{
                         CheckId        = "2.13"
                         CheckName      = "sa Login Disabled"
                         Category       = "Surface Area"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["2.13"]
-                        Status         = if (-not $enabled) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($enabled) { "Enabled (name: $($saLogin213.Name))" } else { "Disabled" }
+                        Status         = if (-not $enabled2) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($enabled2) { "Enabled (name: $($saLogin2.Name))" } else { "Disabled" }
                         ExpectedValue  = "Disabled"
                         Remediation    = "USE [master]; DECLARE @tsql nvarchar(max); SET @tsql = 'ALTER LOGIN ' + SUSER_NAME(0x01) + ' DISABLE'; EXEC (@tsql);"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §2.13"
@@ -408,18 +414,15 @@ function Test-DakCISBenchmark {
 
                 # 2.14 sa Renamed — SID 0x01 lookup so a renamed login is still caught.
                 try {
-                    $saLogin214 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
-                        Select-Object -First 1
-                    if ($saLogin214) {
+                    if ($saData2.Login) {
                         $splatCheck = @{
                             CheckId        = "2.14"
                             CheckName      = "sa Login Renamed"
                             Category       = "Surface Area"
                             AssessmentType = "Automated"
                             Priority       = $cisPriority["2.14"]
-                            Status         = if ($saLogin214.Name -ne "sa") { "Pass" } else { "Fail" }
-                            CurrentValue   = $saLogin214.Name
+                            Status         = if ($saData2.Login.Name -ne "sa") { "Pass" } else { "Fail" }
+                            CurrentValue   = $saData2.Login.Name
                             ExpectedValue  = "Not sa"
                             Remediation    = "ALTER LOGIN [sa] WITH NAME = [sa_disabled];"
                             Reference      = "CIS SQL Server 2025 v1.0.0 §2.14"
@@ -495,19 +498,24 @@ function Test-DakCISBenchmark {
             # ── §3 Authentication & Authorization ──────────────────────
             if (ShouldRun "3") {
                 Write-Verbose "[$instance] §3 Authentication"
+                $authData3    = Get-AuthMode        -ctx $connSplat
+                $guestData3   = Get-GuestAccess     -ctx $connSplat
+                $orphanData3  = Get-OrphanedUsers   -ctx $connSplat
+                $permData3    = Get-PublicRolePerms  -ctx $connSplat
+                $builtinData3 = Get-BuiltinGroups   -ctx $connSplat
+                $sysData3     = Get-SysadminLogins  -ctx $connSplat
 
                 # 3.1 Auth Mode
                 try {
-                    $authMode = Get-DbaInstanceProperty @connSplat -InstanceProperty LoginMode -WarningAction SilentlyContinue | Select-Object -First 1
-                    $winOnly  = ($authMode.Value -eq 1)
+                    $winOnly3 = ($authData3.LoginMode -eq 1)
                     $splatCheck = @{
                         CheckId        = "3.1"
                         CheckName      = "Windows Authentication Mode"
                         Category       = "Authentication"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["3.1"]
-                        Status         = if ($winOnly) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($winOnly) { "Windows Only" } else { "Mixed Mode" }
+                        Status         = if ($winOnly3) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($winOnly3) { "Windows Only" } else { "Mixed Mode" }
                         ExpectedValue  = "Windows Only"
                         Remediation    = "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 1  -- Restart required."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §3.1"
@@ -518,17 +526,14 @@ function Test-DakCISBenchmark {
 
                 # 3.2 Guest CONNECT
                 try {
-                    $guestDbs = Get-DbaDbUser @connSplat -ExcludeDatabase master, msdb, tempdb -User "guest" -WarningAction SilentlyContinue |
-                        Where-Object { $_.HasDbAccess -eq $true }
-                    $count = if ($guestDbs) { @($guestDbs).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "3.2"
                         CheckName      = "Guest CONNECT Permission"
                         Category       = "Authentication"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["3.2"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { ($guestDbs.Database -join ", ") }
+                        Status         = if ($guestData3.Count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($guestData3.Count -eq 0) { "None" } else { ($guestData3.DatabaseNames -join ", ") }
                         ExpectedValue  = "None"
                         Remediation    = "USE [dbname]; REVOKE CONNECT FROM guest;"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §3.2"
@@ -539,16 +544,14 @@ function Test-DakCISBenchmark {
 
                 # 3.3 Orphaned Users
                 try {
-                    $orphans = Get-DbaDbOrphanUser @connSplat -WarningAction SilentlyContinue
-                    $count   = if ($orphans) { @($orphans).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "3.3"
                         CheckName      = "Orphaned Database Users"
                         Category       = "Authentication"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["3.3"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count orphaned" }
+                        Status         = if ($orphanData3.Count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($orphanData3.Count -eq 0) { "None" } else { "$($orphanData3.Count) orphaned" }
                         ExpectedValue  = "None"
                         Remediation    = "Repair-DbaDbOrphanUser -SqlInstance $instance  -- or: USE [db]; DROP USER [name];"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §3.3"
@@ -679,17 +682,14 @@ function Test-DakCISBenchmark {
 
                 # 3.8 Public Server Role Permissions
                 try {
-                    $q3_8  = "SELECT COUNT(*) AS ExtraPerms FROM master.sys.server_permissions WHERE grantee_principal_id = SUSER_SID(N'public') AND state_desc LIKE 'GRANT%' AND NOT (permission_name = 'VIEW ANY DATABASE' AND class_desc = 'SERVER') AND NOT (permission_name = 'CONNECT' AND class_desc = 'ENDPOINT' AND major_id IN (2,3,4,5));"
-                    $r3_8  = Invoke-DbaQuery @connSplat -Query $q3_8 -WarningAction SilentlyContinue
-                    $count = if ($r3_8) { $r3_8.ExtraPerms } else { 0 }
                     $splatCheck = @{
                         CheckId        = "3.8"
                         CheckName      = "Public Role Server Permissions"
                         Category       = "Authorization"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["3.8"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = "$count extra permissions"
+                        Status         = if ($permData3.Count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = "$($permData3.Count) extra permissions"
                         ExpectedValue  = "0"
                         Remediation    = "USE [master]; REVOKE [permission_name] FROM public;  -- Query sys.server_permissions WHERE grantee_principal_id = SUSER_SID(N'public') for the full list."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §3.8"
@@ -700,16 +700,14 @@ function Test-DakCISBenchmark {
 
                 # 3.9 BUILTIN Groups
                 try {
-                    $builtins = Get-DbaLogin @connSplat -WarningAction SilentlyContinue | Where-Object { $_.Name -like "BUILTIN\*" }
-                    $count    = if ($builtins) { @($builtins).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "3.9"
                         CheckName      = "BUILTIN Groups"
                         Category       = "Authorization"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["3.9"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { ($builtins.Name -join ", ") }
+                        Status         = if ($builtinData3.Count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($builtinData3.Count -eq 0) { "None" } else { ($builtinData3.Names -join ", ") }
                         ExpectedValue  = "None"
                         Remediation    = "USE [master]; DROP LOGIN [BUILTIN\Administrators];  -- Ensure equivalent AD groups are in place before dropping."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §3.9"
@@ -762,10 +760,8 @@ function Test-DakCISBenchmark {
 
                 # 3.12 SYSADMIN Role — Manual per CIS 2025. Collect membership for review.
                 try {
-                    $builtinSysFilter = @('NT SERVICE\SQLWriter','NT SERVICE\Winmgmt','NT SERVICE\MSSQLSERVER','NT SERVICE\SQLSERVERAGENT')
-                    $sysadmins = Get-DbaServerRoleMember @connSplat -ServerRole sysadmin -WarningAction SilentlyContinue |
-                        Where-Object { $_.Name -notin $builtinSysFilter -and $_.Name -notlike '##*' }
-                    $count = if ($sysadmins) { @($sysadmins).Count } else { 0 }
+                    $svcFilter3   = @('NT SERVICE\SQLWriter','NT SERVICE\Winmgmt','NT SERVICE\MSSQLSERVER','NT SERVICE\SQLSERVERAGENT')
+                    $sysFiltered3 = @($sysData3.Members | Where-Object { $_.Name -notin $svcFilter3 })
                     $splatCheck = @{
                         CheckId        = "3.12"
                         CheckName      = "SYSADMIN Role Membership"
@@ -773,7 +769,7 @@ function Test-DakCISBenchmark {
                         AssessmentType = "Manual"
                         Priority       = $cisPriority["3.12"]
                         Status         = "Manual"
-                        CurrentValue   = "$count non-system sysadmin members"
+                        CurrentValue   = "$($sysFiltered3.Count) non-system sysadmin members"
                         ExpectedValue  = "Only explicitly approved administrative accounts"
                         Remediation    = "Review the member list from the SqlQuery. For any account that should not have sysadmin: ALTER SERVER ROLE sysadmin DROP MEMBER [account];"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §3.12"
@@ -883,6 +879,7 @@ WHERE perm.major_id = OBJECT_ID('sys.sp_invoke_external_rest_endpoint')
             # ── §4 Password Policies ───────────────────────────────────
             if (ShouldRun "4") {
                 Write-Verbose "[$instance] §4 Password Policies"
+                $sqlAuthData4 = Get-SqlAuthLogins -ctx $connSplat
 
                 # 4.1 MUST_CHANGE — Manual per CIS 2025.
                 try {
@@ -939,17 +936,15 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
 
                 # 4.3 CHECK_POLICY — SMO PasswordPolicyEnforced maps to is_policy_checked.
                 try {
-                    $noPolicy = Get-DbaLogin @connSplat -Type SQL -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.PasswordPolicyEnforced }
-                    $count    = if ($noPolicy) { @($noPolicy).Count } else { 0 }
+                    $noPolicy4 = @($sqlAuthData4.Logins | Where-Object { -not $_.PasswordPolicyEnforced })
                     $splatCheck = @{
                         CheckId        = "4.3"
                         CheckName      = "CHECK_POLICY Enabled"
                         Category       = "Password Policy"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["4.3"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All compliant" } else { "$count logins without policy" }
+                        Status         = if ($noPolicy4.Count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($noPolicy4.Count -eq 0) { "All compliant" } else { "$($noPolicy4.Count) logins without policy" }
                         ExpectedValue  = "All enabled"
                         Remediation    = "ALTER LOGIN [name] WITH CHECK_POLICY = ON;"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §4.3"
@@ -962,21 +957,21 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
             # ── §5 Auditing & Logging ──────────────────────────────────
             if (ShouldRun "5") {
                 Write-Verbose "[$instance] §5 Auditing"
+                $retData5   = Get-ErrorLogRetention -ctx $connSplat
+                $traceData5 = Get-DefaultTrace      -ctx $connSplat
+                $auditLvl5  = Get-LoginAuditLevel   -ctx $connSplat
+                $auditData5 = Get-SqlAudits         -ctx $connSplat
 
                 # 5.1 Error Log File Count
                 try {
-                    $logCfg   = Get-DbaErrorLogConfig @connSplat -WarningAction SilentlyContinue | Select-Object -First 1
-                    $rawCount = if ($logCfg) { $logCfg.LogCount } else { 0 }
-                    $count    = if ($rawCount -lt 0) { 6 } else { $rawCount }
-                    $display  = if ($rawCount -lt 0) { "default (6) — registry key absent" } else { $count.ToString() }
                     $splatCheck = @{
                         CheckId        = "5.1"
                         CheckName      = "Error Log File Count"
                         Category       = "Auditing"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["5.1"]
-                        Status         = if ($count -ge 12) { "Pass" } else { "Fail" }
-                        CurrentValue   = $display
+                        Status         = if ($retData5.Count -ge 12) { "Pass" } else { "Fail" }
+                        CurrentValue   = $retData5.Display
                         ExpectedValue  = "12 or more"
                         Remediation    = "Set-DbaErrorLogConfig -SqlInstance $instance -LogCount 12"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §5.1"
@@ -987,16 +982,15 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
 
                 # 5.2 Default Trace
                 try {
-                    $defTrace = Get-DbaSpConfigure @connSplat -Name "DefaultTraceEnabled" -WarningAction SilentlyContinue | Select-Object -First 1
-                    if ($defTrace) {
+                    if ($traceData5.Config) {
                         $splatCheck = @{
                             CheckId        = "5.2"
                             CheckName      = "Default Trace Enabled"
                             Category       = "Auditing"
                             AssessmentType = "Automated"
                             Priority       = $cisPriority["5.2"]
-                            Status         = if ($defTrace.RunningValue -eq 1) { "Pass" } else { "Fail" }
-                            CurrentValue   = $defTrace.RunningValue.ToString()
+                            Status         = if ($traceData5.Enabled) { "Pass" } else { "Fail" }
+                            CurrentValue   = $traceData5.Config.RunningValue.ToString()
                             ExpectedValue  = "1"
                             Remediation    = "EXEC sp_configure 'default trace enabled', 1; RECONFIGURE;"
                             Reference      = "CIS SQL Server 2025 v1.0.0 §5.2"
@@ -1008,17 +1002,14 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
 
                 # 5.3 Login Audit Level
                 try {
-                    $auditResult = Invoke-DbaQuery @connSplat -Query "EXEC xp_loginconfig 'audit level';" -WarningAction SilentlyContinue
-                    $rawLevel    = if ($auditResult) { $auditResult[0].config_value } else { $null }
-                    $level       = if ($rawLevel) { $rawLevel.Trim() } else { "none" }
                     $splatCheck = @{
                         CheckId        = "5.3"
                         CheckName      = "Login Audit Level"
                         Category       = "Auditing"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["5.3"]
-                        Status         = if ($level -in "all", "failure") { "Pass" } else { "Fail" }
-                        CurrentValue   = $level
+                        Status         = if ($auditLvl5.Level -in "all", "failure") { "Pass" } else { "Fail" }
+                        CurrentValue   = $auditLvl5.Level
                         ExpectedValue  = "failure or all"
                         Remediation    = "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'AuditLevel', REG_DWORD, 2  -- 2=failure, 3=all; SQL Server service restart required."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §5.3"
@@ -1029,31 +1020,21 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
 
                 # 5.4 SQL Server Audit — CIS 2025 requires specific action groups, not just existence.
                 try {
-                    $auditQuery = @"
-SELECT SAD.audit_action_name, SAD.audited_result,
-       S.is_state_enabled AS AuditEnabled, SA.is_state_enabled AS SpecEnabled
-FROM sys.server_audit_specification_details AS SAD
-JOIN sys.server_audit_specifications AS SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits AS S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
-   OR (SAD.audit_action_id IN ('DAGS','DAGF') AND (SELECT COUNT(*) FROM sys.databases WHERE containment = 1) > 0);
-"@
-                    $auditRows   = Invoke-DbaQuery @connSplat -Query $auditQuery -WarningAction SilentlyContinue
-                    $required    = @("AUDIT_CHANGE_GROUP","FAILED_LOGIN_GROUP","SUCCESSFUL_LOGIN_GROUP",
-                                     "DATABASE_ROLE_MEMBER_CHANGE_GROUP","SERVER_ROLE_MEMBER_CHANGE_GROUP","SERVER_OPERATION_GROUP")
-                    $foundGroups = if ($auditRows) { @($auditRows | Where-Object { $_.AuditEnabled -and $_.SpecEnabled } | Select-Object -ExpandProperty audit_action_name -Unique) } else { @() }
-                    $missing     = $required | Where-Object { $_ -notin $foundGroups }
-                    $compliant   = $missing.Count -eq 0
+                    $required5    = @("AUDIT_CHANGE_GROUP","FAILED_LOGIN_GROUP","SUCCESSFUL_LOGIN_GROUP",
+                                      "DATABASE_ROLE_MEMBER_CHANGE_GROUP","SERVER_ROLE_MEMBER_CHANGE_GROUP","SERVER_OPERATION_GROUP")
+                    $foundGroups5 = $auditData5.ActionNames
+                    $missing5     = @($required5 | Where-Object { $_ -notin $foundGroups5 })
+                    $compliant5   = $missing5.Count -eq 0
                     $splatCheck = @{
                         CheckId        = "5.4"
                         CheckName      = "SQL Server Audit — Required Action Groups"
                         Category       = "Auditing"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["5.4"]
-                        Status         = if ($compliant) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($foundGroups.Count -eq 0) { "No enabled audit configured" } else { "$($foundGroups.Count) of $($required.Count) required groups found" }
+                        Status         = if ($compliant5) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($foundGroups5.Count -eq 0) { "No enabled audit configured" } else { "$($foundGroups5.Count) of $($required5.Count) required groups found" }
                         ExpectedValue  = "All 6 required action groups captured and both Audit + Specification enabled"
-                        Remediation    = if ($compliant) { $null } else { "Missing groups: $($missing -join ", "). See CIS §5.4 for CREATE SERVER AUDIT and SERVER AUDIT SPECIFICATION T-SQL." }
+                        Remediation    = if ($compliant5) { $null } else { "Missing groups: $($missing5 -join ", "). See CIS §5.4 for CREATE SERVER AUDIT and SERVER AUDIT SPECIFICATION T-SQL." }
                         Reference      = "CIS SQL Server 2025 v1.0.0 §5.4"
                         SqlQuery       = $sql["5.4"]
                     }
@@ -1064,6 +1045,7 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
             # ── §6 Application Development ─────────────────────────────
             if (ShouldRun "6") {
                 Write-Verbose "[$instance] §6 Application Development"
+                $clrData6 = Get-ClrAssemblies -ctx $connSplat
 
                 # 6.1 Input Sanitization — purely architectural/code review, no T-SQL audit.
                 $splatCheck = @{
@@ -1083,21 +1065,14 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
 
                 # 6.2 CLR Assembly Permission Sets
                 try {
-                    $q6_2        = "SELECT COUNT(*) AS UnsafeAssemblies FROM sys.assemblies WHERE is_user_defined = 1 AND permission_set_desc NOT IN ('SAFE_ACCESS') AND name <> 'Microsoft.SqlServer.Types';"
-                    $dbs         = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $unsafeCount = 0
-                    foreach ($db in $dbs) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $q6_2 -WarningAction SilentlyContinue
-                        if ($r) { $unsafeCount += $r.UnsafeAssemblies }
-                    }
                     $splatCheck = @{
                         CheckId        = "6.2"
                         CheckName      = "CLR Assembly Permission Sets"
                         Category       = "AppDev"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["6.2"]
-                        Status         = if ($unsafeCount -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = "$unsafeCount UNSAFE/EXTERNAL assemblies"
+                        Status         = if ($clrData6.UnsafeCount -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = "$($clrData6.UnsafeCount) UNSAFE assemblies"
                         ExpectedValue  = "0"
                         Remediation    = "Test in non-production first. If safe: USE [db]; ALTER ASSEMBLY [name] WITH PERMISSION_SET = SAFE;  -- vendor assemblies may require EXTERNAL_ACCESS."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §6.2"
@@ -1110,24 +1085,21 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
             # ── §7 Encryption (Level 2) ────────────────────────────────
             if (ShouldRun "7") {
                 Write-Verbose "[$instance] §7 Encryption"
+                $symData7  = Get-SymmetricKeys     -ctx $connSplat
+                $asymData7 = Get-AsymmetricKeys    -ctx $connSplat
+                $netEnc7   = Get-NetworkEncryption -ctx $connSplat
+                $tde7      = Get-TdeStatus         -ctx $connSplat
 
                 # 7.1 Symmetric Key Algorithms
                 try {
-                    $q7_1      = "SELECT COUNT(*) AS WeakKeys FROM sys.symmetric_keys WHERE algorithm_desc NOT IN ('AES_128','AES_192','AES_256') AND DB_ID() > 4;"
-                    $dbs       = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $weakKeys  = 0
-                    foreach ($db in $dbs) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $q7_1 -WarningAction SilentlyContinue
-                        if ($r) { $weakKeys += $r.WeakKeys }
-                    }
                     $splatCheck = @{
                         CheckId        = "7.1"
                         CheckName      = "Symmetric Key Algorithms"
                         Category       = "Encryption"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["7.1"]
-                        Status         = if ($weakKeys -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = "$weakKeys non-AES symmetric keys"
+                        Status         = if ($symData7.WeakCount -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = "$($symData7.WeakCount) non-AES symmetric keys"
                         ExpectedValue  = "0"
                         Remediation    = "Recreate symmetric keys using AES_128, AES_192, or AES_256. See: ALTER SYMMETRIC KEY docs."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §7.1"
@@ -1138,21 +1110,14 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
 
                 # 7.2 Asymmetric Key Size
                 try {
-                    $q7_2      = "SELECT COUNT(*) AS SmallKeys FROM sys.asymmetric_keys WHERE key_length < 2048 AND DB_ID() > 4;"
-                    $dbs       = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $smallKeys = 0
-                    foreach ($db in $dbs) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $q7_2 -WarningAction SilentlyContinue
-                        if ($r) { $smallKeys += $r.SmallKeys }
-                    }
                     $splatCheck = @{
                         CheckId        = "7.2"
                         CheckName      = "Asymmetric Key Size"
                         Category       = "Encryption"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["7.2"]
-                        Status         = if ($smallKeys -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = "$smallKeys keys < 2048 bit"
+                        Status         = if ($asymData7.ShortCount -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = "$($asymData7.ShortCount) keys < 2048 bit"
                         ExpectedValue  = "0"
                         Remediation    = "Recreate asymmetric keys at RSA_2048 or higher. See: ALTER ASYMMETRIC KEY docs."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §7.2"
@@ -1184,17 +1149,14 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
 
                 # 7.4 Network Encryption (Level 2) — CIS 2025 audit expects only TRUE rows.
                 try {
-                    $q7_4 = "SELECT DISTINCT encrypt_option FROM sys.dm_exec_connections c WHERE net_transport <> 'Shared memory' AND c.endpoint_id NOT IN (SELECT endpoint_id FROM sys.database_mirroring_endpoints WHERE encryption_algorithm IS NOT NULL);"
-                    $r7_4 = Invoke-DbaQuery @connSplat -Query $q7_4 -WarningAction SilentlyContinue
-                    $unenc = if ($r7_4) { @($r7_4 | Where-Object { $_.encrypt_option -ne "TRUE" }).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "7.4"
                         CheckName      = "Network Encryption (Level 2)"
                         Category       = "Encryption"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["7.4"]
-                        Status         = if ($unenc -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($unenc -eq 0) { "All connections encrypted" } else { "$unenc unencrypted connection types" }
+                        Status         = if ($netEnc7.UnencryptedCount -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($netEnc7.UnencryptedCount -eq 0) { "All connections encrypted" } else { "$($netEnc7.UnencryptedCount) unencrypted connection types" }
                         ExpectedValue  = "All non-shared-memory connections encrypted"
                         Remediation    = "Configure Force Encryption in SQL Server Configuration Manager > SQL Server Network Configuration > Protocols > Properties, or enforce TLS at the certificate level."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §7.4 (Level 2)"
@@ -1205,17 +1167,14 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
 
                 # 7.5 TDE (Level 2) — fail if any user database is not encrypted.
                 try {
-                    $unencDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.EncryptionEnabled }
-                    $count = if ($unencDbs) { @($unencDbs).Count } else { 0 }
                     $splatCheck = @{
                         CheckId        = "7.5"
                         CheckName      = "Transparent Data Encryption (Level 2)"
                         Category       = "Encryption"
                         AssessmentType = "Automated"
                         Priority       = $cisPriority["7.5"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All user databases encrypted" } else { "$count unencrypted user databases" }
+                        Status         = if ($tde7.UnencryptedCount -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($tde7.UnencryptedCount -eq 0) { "All user databases encrypted" } else { "$($tde7.UnencryptedCount) unencrypted: $($tde7.UnencryptedNames -join ', ')" }
                         ExpectedValue  = "0 unencrypted user databases"
                         Remediation    = "Enable TDE on each sensitive database: Get-DbaDatabase -SqlInstance $instance | Where-Object IsSystemObject -eq `$false | Enable-DbaDatabaseEncryption"
                         Reference      = "CIS SQL Server 2025 v1.0.0 §7.5 (Level 2)"
@@ -1228,13 +1187,13 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
             # ── §8 Additional ──────────────────────────────────────────
             if (ShouldRun "8") {
                 Write-Verbose "[$instance] §8 Additional"
+                $svcData8 = Get-SqlServices -ctx $connSplat
 
                 # 8.1 SQL Browser Service — Manual per CIS 2025.
                 # The benchmark explicitly states no universal recommendation; context determines correctness.
                 try {
-                    $browser = Get-DbaService -ComputerName $computerName -WarningAction SilentlyContinue |
-                        Where-Object { $_.ServiceType -eq "Browser" } | Select-Object -First 1
-                    $currentVal = if ($browser) { "State=$($browser.State); StartMode=$($browser.StartMode)" } else { "Service not found" }
+                    $browser8    = $svcData8.Browser
+                    $currentVal8 = if ($browser8) { "State=$($browser8.State); StartMode=$($browser8.StartMode)" } else { "Service not found" }
                     $splatCheck = @{
                         CheckId        = "8.1"
                         CheckName      = "SQL Server Browser Service"
@@ -1242,7 +1201,7 @@ WHERE SAD.audit_action_id IN ('CNAU','LGFL','LGSD','ADDP','ADSP','OPSV')
                         AssessmentType = "Manual"
                         Priority       = $cisPriority["8.1"]
                         Status         = "Manual"
-                        CurrentValue   = $currentVal
+                        CurrentValue   = $currentVal8
                         ExpectedValue  = "Depends on environment: Disabled for default instances; Enabled only for named instances accessed interactively by end users"
                         Remediation    = "Default instance or app-only named instance: disable and set to Manual or Disabled start. Named instance with interactive end-user connections: Browser service may be required. Document the decision and ensure firewall rules compensate if disabled."
                         Reference      = "CIS SQL Server 2025 v1.0.0 §8.1"

@@ -1,3 +1,5 @@
+Get-ChildItem "$PSScriptRoot\Private\*.ps1" | ForEach-Object { . $_.FullName }
+
 function Test-DakPCIBenchmark {
     <#
     .SYNOPSIS
@@ -10,16 +12,19 @@ function Test-DakPCIBenchmark {
         Returns one result object per check per instance (type: DakSqlKit.AuditResult).
 
         PCI DSS requirements assessed:
-            §1 — Secure Configuration     ( 9 checks: PCI-1.1–1.9  | Req 2)
-            §2 — Access Control           ( 9 checks: PCI-2.1–2.9  | Req 7–8)
-            §3 — Data Protection          ( 5 checks: PCI-3.1–3.5  | Req 3–4)
-            §4 — Audit & Logging          ( 6 checks: PCI-4.1–4.6  | Req 10)
-            §5 — Vulnerability Management ( 5 checks: PCI-5.1–5.5  | Req 6)
+            §1 — Secure Configuration     ( 9 checks | Req 1, 2, 6, 8)
+            §2 — Access Control           ( 9 checks | Req 7, 8)
+            §3 — Data Protection          ( 5 checks | Req 3, 4)
+            §4 — Audit & Logging          ( 6 checks | Req 10)
+            §5 — Vulnerability Management ( 5 checks | Req 6)
 
         AssessmentType on each result:
             Automated — pass/fail determined by the tool
+            Review    — tool collected evidence; a human must sign off on the finding
             Manual    — tool collected evidence; a human must determine compliance
 
+        Review results have Compliant = $null. Status is Review unless a hard
+        violation was detected, in which case Status may be Fail.
         Manual results always have Compliant = $null and a Remediation note with the
         audit procedure the reviewer must perform.
 
@@ -34,7 +39,7 @@ function Test-DakPCIBenchmark {
         PCI DSS sections to run: 1–5, or All. Default: All.
 
     .PARAMETER FailedOnly
-        Return only Fail, Warning, and Manual results.
+        Return only Fail, Warning, Review, and Manual results.
 
     .PARAMETER Quiet
         Suppress console progress output.
@@ -82,40 +87,40 @@ function Test-DakPCIBenchmark {
         function ShouldRun ([string]$s) { $runAll -or $Section -contains $s }
 
         $pciPriority = @{
-            "1.1" = "High"      # Enabled sa is a known privileged target; Req 2.2.2 vendor defaults
-            "1.2" = "Medium"    # Well-known account name aids brute-force; Req 2.2.2
-            "1.3" = "Critical"  # xp_cmdshell enables OS-level command execution from SQL; Req 2.2.4
-            "1.4" = "High"      # OLE Automation executes arbitrary COM objects; Req 2.2.4
-            "1.5" = "Medium"    # Ad hoc distributed queries open data exfiltration paths; Req 2.2.4
-            "1.6" = "High"      # CLR without strict security allows UNSAFE .NET code; Req 2.2.4
-            "1.7" = "Medium"    # SQL Browser exposes instance names to network scanners; Req 2.2.4
-            "1.8" = "Low"       # Default port 1433 is a primary scan target; Req 2.2.7
-            "1.9" = "Low"       # Hide instance reduces instance discovery surface; Req 2.2.4
-            "2.1" = "High"      # SQL auth bypasses AD provisioning and MFA enforcement; Req 8.2.1
-            "2.2" = "High"      # BUILTIN groups grant SQL access outside provisioning; Req 7.2
-            "2.3" = "Medium"    # Guest bypasses formal user provisioning; Req 7.2
-            "2.4" = "High"      # Public role excess permissions violate least privilege; Req 7.2
-            "2.5" = "Medium"    # Orphaned users retain access to database objects; Req 7.2
-            "2.6" = "High"      # CHECK_POLICY off permits weak passwords; Req 8.3.6
-            "2.7" = "High"      # Unexpired privileged passwords violate access control; Req 8.3.9
-            "2.8" = "Low"       # MUST_CHANGE logins may indicate stale provisioned accounts; Req 8.2
-            "2.9" = "Critical"  # Sysadmin = unrestricted access to all cardholder data; Req 7.2.2
-            "3.1" = "Critical"  # PAN must be rendered unreadable at rest; Req 3.5.1
-            "3.2" = "High"      # Weak symmetric key algorithms compromise data protection; Req 3.6.1
-            "3.3" = "Medium"    # Short asymmetric keys can be factored; Req 3.7.1
-            "3.4" = "High"      # Unencrypted connections expose PAN in transit; Req 4.2.1
-            "3.5" = "High"      # Unencrypted backups expose PAN at rest outside the DB; Req 3.5.1
-            "4.1" = "Critical"  # Audit trail is the primary PCI detective control; Req 10.2.1
-            "4.2" = "High"      # Failure-only audit captures brute-force attempts; Req 10.2.1.4
-            "4.3" = "Critical"  # PCI DSS Req 10.5.1 mandates 12-month log retention
-            "4.4" = "Low"       # Default trace provides baseline change evidence; Req 10.2
-            "4.5" = "High"      # Role membership changes must be attributable; Req 10.2.1.5
-            "4.6" = "High"      # Schema changes to PAN tables must be tracked; Req 10.2.1.2
-            "5.1" = "High"      # Critical patches required within 1 month; Req 6.3.3
-            "5.2" = "Medium"    # DBCC CHECKDB validates structural integrity; Req 6
-            "5.3" = "High"      # Inaccessible databases mean PAN is unavailable; Req 6
-            "5.4" = "Medium"    # CHECKSUM detects page corruption before permanent loss; Req 6
-            "5.5" = "High"      # UNSAFE CLR assemblies allow arbitrary code execution; Req 6.3.2
+            "8.6.1"     = "High"      # Enabled sa is a known privileged target; vendor default account
+            "8.6.1a"    = "Medium"    # Well-known account name aids brute-force
+            "2.2.1a"    = "Critical"  # xp_cmdshell enables OS-level command execution from SQL
+            "2.2.1b"    = "High"      # OLE Automation executes arbitrary COM objects
+            "2.2.1c"    = "Medium"    # Ad hoc distributed queries open data exfiltration paths
+            "6.2.4"     = "High"      # CLR without strict security allows UNSAFE .NET code
+            "2.2.1d"    = "Medium"    # SQL Browser exposes instance names to network scanners
+            "1.2.6"     = "Low"       # Default port 1433 is a primary scan target
+            "2.2.2"     = "Low"       # Hide instance reduces instance discovery surface
+            "8.2.1"     = "High"      # SQL auth bypasses AD provisioning and MFA enforcement
+            "8.2.3"     = "High"      # BUILTIN groups grant SQL access outside provisioning
+            "7.2.1"     = "Medium"    # Guest bypasses formal user provisioning
+            "7.2.1a"    = "High"      # Public role excess permissions violate least privilege
+            "8.3.6"     = "Medium"    # Orphaned users retain access to database objects
+            "8.3.6a"    = "High"      # CHECK_POLICY off permits weak passwords
+            "8.3.9"     = "High"      # Unexpired privileged passwords violate access control
+            "8.3.6b"    = "Low"       # MUST_CHANGE logins may indicate stale provisioned accounts
+            "7.2.2"     = "Critical"  # Sysadmin = unrestricted access to all cardholder data
+            "3.5.1"     = "Critical"  # PAN must be rendered unreadable at rest
+            "3.6.1a"    = "High"      # Weak symmetric key algorithms compromise data protection
+            "3.6.1b"    = "Medium"    # Short asymmetric keys can be factored
+            "4.2.1"     = "High"      # Unencrypted connections expose PAN in transit
+            "3.5.1a"    = "High"      # Unencrypted backups expose PAN at rest outside the DB
+            "10.2.1"    = "Critical"  # Audit trail is the primary PCI detective control
+            "10.2.1.4"  = "High"      # Failure-only audit captures brute-force attempts
+            "10.7.1"    = "Critical"  # PCI DSS Req 10.7.1 mandates 12-month log retention
+            "10.2.1a"   = "Low"       # Default trace provides baseline change evidence
+            "10.2.1.5"  = "High"      # Role membership changes must be attributable
+            "10.2.1.2"  = "High"      # Schema changes to PAN tables must be tracked
+            "6.3.3"     = "High"      # Critical patches required within 1 month
+            "6.3.3a"    = "Medium"    # DBCC CHECKDB validates structural integrity
+            "6.3.3b"    = "High"      # Inaccessible databases mean PAN is unavailable
+            "6.3.3c"    = "Medium"    # CHECKSUM detects page corruption before permanent loss
+            "6.2.4a"    = "High"      # UNSAFE CLR assemblies allow arbitrary code execution
         }
     }
 
@@ -139,138 +144,137 @@ function Test-DakPCIBenchmark {
             $emit = {
                 param ([PSCustomObject]$r)
                 $color = switch ($r.Status) {
-                    "Pass"    { "Green"  }
-                    "Fail"    { "Red"    }
-                    "Warning" { "Yellow" }
-                    "Manual"  { "Cyan"   }
-                    default   { "Gray"   }
+                    "Pass"    { "Green"   }
+                    "Fail"    { "Red"     }
+                    "Warning" { "Yellow"  }
+                    "Review"  { "Magenta" }
+                    "Manual"  { "Cyan"    }
+                    default   { "Gray"    }
                 }
-                if (-not $Quiet) { Write-Host ("  [{0,-7}] {1,-55} {2}" -f $r.CheckId, $r.CheckName, $r.Status.ToUpper()) -ForegroundColor $color }
-                if (-not $FailedOnly -or $r.Status -in "Fail", "Warning", "Manual", "Error") {
+                if (-not $Quiet) { Write-Host ("  [{0,-9}] {1,-55} {2}" -f $r.CheckId, $r.CheckName, $r.Status.ToUpper()) -ForegroundColor $color }
+                if (-not $FailedOnly -or $r.Status -in "Fail", "Warning", "Review", "Manual", "Error") {
                     $r
                 }
             }
 
-            # ── §1 Secure Configuration (Req 2) ───────────────────────────────────
+            # ── §1 Secure Configuration (Req 1, 2, 6, 8) ─────────────────────────
             if (ShouldRun "1") {
                 Write-Verbose "[$instance] §1 Secure Configuration"
 
-                # Pre-fetch sa login once for PCI-1.1 and PCI-1.2 (SID 0x01 finds renamed sa).
-                $saLogin1 = $null
-                try {
-                    $saLogin1 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
-                        Select-Object -First 1
-                } catch { Write-Verbose "[$instance] sa pre-fetch failed: $($_.Exception.Message)" }
+                $saData1  = Get-SaLogin           -ctx $connSplat
+                $sac      = Get-SurfaceAreaConfig  -ctx $connSplat
+                $svcData1 = Get-SqlServices        -ctx $connSplat
+                $netCfg1  = Get-NetworkConfig      -ctx $connSplat
+                $saLogin1 = $saData1.Login
 
-                # PCI-1.1 sa disabled — Req 2.2.2: change vendor-supplied default credentials.
+                # 8.6.1 sa disabled — Req 8.6.1: shared/generic accounts must not be used for system/admin functions.
                 try {
                     $saEnabled = $saLogin1 -and -not $saLogin1.IsDisabled
                     $splatCheck = @{
-                        CheckId        = "PCI-1.1"
+                        CheckId        = "8.6.1"
                         CheckName      = "sa Login Disabled"
                         Category       = "Secure Configuration"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["1.1"]
+                        Priority       = $pciPriority["8.6.1"]
                         Status         = if (-not $saEnabled) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($saEnabled) { "Enabled (name: $($saLogin1.Name))" } else { "Disabled" }
                         ExpectedValue  = "Disabled"
                         Remediation    = "Disable the sa account: USE [master]; DECLARE @n NVARCHAR(256) = SUSER_NAME(0x01); EXEC ('ALTER LOGIN [' + @n + '] DISABLE');"
-                        Reference      = "PCI DSS v4.0.1 Req 2.2.2"
-                        SqlQuery       = "-- Automated via Get-DbaLogin (SID 0x01 lookup). T-SQL: SELECT name, is_disabled FROM sys.server_principals WHERE sid = 0x01 AND is_disabled = 0;  -- No rows = compliant"
+                        Reference      = "PCI DSS v4.0.1 Req 8.6.1"
+                        SqlQuery       = "-- Automated via Get-SaLogin (Private). T-SQL: SELECT name, is_disabled FROM sys.server_principals WHERE sid = 0x01 AND is_disabled = 0;  -- No rows = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-1.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.6.1: $($_.Exception.Message)" }
 
-                # PCI-1.2 sa renamed — Req 2.2.2: change vendor-supplied default account names.
+                # 8.6.1a sa renamed — Req 8.6.1: well-known account name aids targeted attacks.
                 try {
                     if ($saLogin1) {
                         $splatCheck = @{
-                            CheckId        = "PCI-1.2"
+                            CheckId        = "8.6.1a"
                             CheckName      = "sa Login Renamed"
                             Category       = "Secure Configuration"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["1.2"]
+                            Priority       = $pciPriority["8.6.1a"]
                             Status         = if ($saLogin1.Name -ne "sa") { "Pass" } else { "Fail" }
                             CurrentValue   = $saLogin1.Name
                             ExpectedValue  = "Any name other than 'sa'"
                             Remediation    = "ALTER LOGIN [sa] WITH NAME = [sa_disabled];"
-                            Reference      = "PCI DSS v4.0.1 Req 2.2.2"
-                            SqlQuery       = "-- Automated via Get-DbaLogin (SID 0x01 lookup). T-SQL: SELECT name FROM sys.server_principals WHERE sid = 0x01;  -- Name should not be 'sa'"
+                            Reference      = "PCI DSS v4.0.1 Req 8.6.1"
+                            SqlQuery       = "-- Automated via Get-SaLogin (Private). T-SQL: SELECT name FROM sys.server_principals WHERE sid = 0x01;  -- Name should not be 'sa'"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-1.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.6.1a: $($_.Exception.Message)" }
 
-                # PCI-1.3 xp_cmdshell disabled — Req 2.2.4: disable unnecessary OS command execution.
+                # 2.2.1a xp_cmdshell disabled — Req 2.2.1: disable unnecessary OS command execution.
                 try {
-                    $cmdShell = Get-DbaSpConfigure @connSplat -Name "xp_cmdshell" -WarningAction SilentlyContinue | Select-Object -First 1
+                    $cmdShell = $sac.XpCmdshell
                     if ($cmdShell) {
                         $splatCheck = @{
-                            CheckId        = "PCI-1.3"
+                            CheckId        = "2.2.1a"
                             CheckName      = "xp_cmdshell Disabled"
                             Category       = "Secure Configuration"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["1.3"]
+                            Priority       = $pciPriority["2.2.1a"]
                             Status         = if ($cmdShell.RunningValue -eq 0) { "Pass" } else { "Fail" }
                             CurrentValue   = $cmdShell.RunningValue.ToString()
                             ExpectedValue  = "0"
                             Remediation    = "EXEC sp_configure 'xp_cmdshell', 0; RECONFIGURE;"
-                            Reference      = "PCI DSS v4.0.1 Req 2.2.4"
+                            Reference      = "PCI DSS v4.0.1 Req 2.2.1"
                             SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name = 'xp_cmdshell';"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-1.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 2.2.1a: $($_.Exception.Message)" }
 
-                # PCI-1.4 OLE Automation disabled — Req 2.2.4: disable unnecessary COM object execution.
+                # 2.2.1b OLE Automation disabled — Req 2.2.1: disable unnecessary COM object execution.
                 try {
-                    $oleAuto = Get-DbaSpConfigure @connSplat -Name "Ole Automation Procedures" -WarningAction SilentlyContinue | Select-Object -First 1
+                    $oleAuto = $sac.OleAutomation
                     if ($oleAuto) {
                         $splatCheck = @{
-                            CheckId        = "PCI-1.4"
+                            CheckId        = "2.2.1b"
                             CheckName      = "OLE Automation Procedures Disabled"
                             Category       = "Secure Configuration"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["1.4"]
+                            Priority       = $pciPriority["2.2.1b"]
                             Status         = if ($oleAuto.RunningValue -eq 0) { "Pass" } else { "Fail" }
                             CurrentValue   = $oleAuto.RunningValue.ToString()
                             ExpectedValue  = "0"
                             Remediation    = "EXEC sp_configure 'Ole Automation Procedures', 0; RECONFIGURE;"
-                            Reference      = "PCI DSS v4.0.1 Req 2.2.4"
+                            Reference      = "PCI DSS v4.0.1 Req 2.2.1"
                             SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name = 'Ole Automation Procedures';"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-1.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 2.2.1b: $($_.Exception.Message)" }
 
-                # PCI-1.5 Ad hoc distributed queries disabled — Req 2.2.4: no OPENROWSET data exfiltration path.
+                # 2.2.1c Ad hoc distributed queries disabled — Req 2.2.1: no OPENROWSET data exfiltration path.
                 try {
-                    $adHoc = Get-DbaSpConfigure @connSplat -Name "Ad Hoc Distributed Queries" -WarningAction SilentlyContinue | Select-Object -First 1
+                    $adHoc = $sac.AdHocDistributed
                     if ($adHoc) {
                         $splatCheck = @{
-                            CheckId        = "PCI-1.5"
+                            CheckId        = "2.2.1c"
                             CheckName      = "Ad Hoc Distributed Queries Disabled"
                             Category       = "Secure Configuration"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["1.5"]
+                            Priority       = $pciPriority["2.2.1c"]
                             Status         = if ($adHoc.RunningValue -eq 0) { "Pass" } else { "Fail" }
                             CurrentValue   = $adHoc.RunningValue.ToString()
                             ExpectedValue  = "0"
                             Remediation    = "EXEC sp_configure 'Ad Hoc Distributed Queries', 0; RECONFIGURE;"
-                            Reference      = "PCI DSS v4.0.1 Req 2.2.4"
+                            Reference      = "PCI DSS v4.0.1 Req 2.2.1"
                             SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name = 'Ad Hoc Distributed Queries';"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-1.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 2.2.1c: $($_.Exception.Message)" }
 
-                # PCI-1.6 CLR strict security — Req 2.2.4: prevent UNSAFE CLR assembly execution.
+                # 6.2.4 CLR strict security — Req 6.2.4: prevent UNSAFE CLR assembly execution.
                 # On SQL 2017+: clr strict security must be 1 if CLR is enabled.
                 # On pre-2017: CLR should be disabled; if enabled, emit Manual.
                 try {
-                    $clrEnabled = Get-DbaSpConfigure @connSplat -Name "clr enabled" -WarningAction SilentlyContinue | Select-Object -First 1
-                    $clrStrict  = Get-DbaSpConfigure @connSplat -Name "clr strict security" -WarningAction SilentlyContinue | Select-Object -First 1
+                    $clrEnabled = $sac.ClrEnabled
+                    $clrStrict  = $sac.ClrStrictSecurity
                     $clrOn      = $clrEnabled -and $clrEnabled.RunningValue -eq 1
                     $strictOn   = $clrStrict  -and $clrStrict.RunningValue  -eq 1
 
@@ -292,240 +296,220 @@ function Test-DakPCIBenchmark {
                     } else {
                         $status  = "Manual"
                         $current = "CLR enabled (pre-SQL 2017 — clr strict security not available)"
-                        $remText = "Review all CLR assemblies: SELECT name, permission_set_desc FROM sys.assemblies WHERE is_user_defined = 1. UNSAFE or EXTERNAL_ACCESS assemblies violate PCI Req 2.2.4. Disable CLR if not required: EXEC sp_configure 'clr enabled', 0; RECONFIGURE;"
+                        $remText = "Review all CLR assemblies: SELECT name, permission_set_desc FROM sys.assemblies WHERE is_user_defined = 1. UNSAFE or EXTERNAL_ACCESS assemblies violate PCI Req 6.2.4. Disable CLR if not required: EXEC sp_configure 'clr enabled', 0; RECONFIGURE;"
                         $aType   = "Manual"
                     }
 
                     $splatCheck = @{
-                        CheckId        = "PCI-1.6"
+                        CheckId        = "6.2.4"
                         CheckName      = "CLR Strict Security"
                         Category       = "Secure Configuration"
                         AssessmentType = $aType
-                        Priority       = $pciPriority["1.6"]
+                        Priority       = $pciPriority["6.2.4"]
                         Status         = $status
                         CurrentValue   = $current
                         ExpectedValue  = "CLR disabled, or CLR strict security = 1 (SQL 2017+)"
                         Remediation    = $remText
-                        Reference      = "PCI DSS v4.0.1 Req 2.2.4"
+                        Reference      = "PCI DSS v4.0.1 Req 6.2.4"
                         SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name IN ('clr enabled','clr strict security');"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-1.6: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 6.2.4: $($_.Exception.Message)" }
 
-                # PCI-1.7 SQL Browser service — Req 2.2.4: disable unnecessary services.
+                # 2.2.1d SQL Browser service — Req 2.2.1: disable unnecessary services.
                 # SQL Browser exposes instance/port enumeration to network scanners.
                 # A Warning (not Fail) is issued because named instances may need Browser for dynamic port resolution.
                 try {
-                    $browserSvc = Get-DbaService -ComputerName $computerName -Type Browser -WarningAction SilentlyContinue | Select-Object -First 1
+                    $browserSvc = $svcData1.Browser
                     if ($browserSvc) {
                         $running = $browserSvc.State -eq "Running"
                         $splatCheck = @{
-                            CheckId        = "PCI-1.7"
+                            CheckId        = "2.2.1d"
                             CheckName      = "SQL Browser Service Disabled"
                             Category       = "Secure Configuration"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["1.7"]
+                            Priority       = $pciPriority["2.2.1d"]
                             Status         = if ($running) { "Warning" } else { "Pass" }
                             CurrentValue   = "State: $($browserSvc.State); StartMode: $($browserSvc.StartMode)"
                             ExpectedValue  = "State: Stopped; StartMode: Disabled"
-                            Remediation    = "If using a named instance with a fixed TCP port, SQL Browser is not required. Disable in SQL Server Configuration Manager or: Set-DbaService -ComputerName $computerName -Type SqlBrowser -StartupType Disabled. Named instances using dynamic ports require SQL Browser for port resolution — consider switching to a fixed port first (PCI-1.8)."
-                            Reference      = "PCI DSS v4.0.1 Req 2.2.4"
-                            SqlQuery       = "-- Automated via Get-DbaService -Type SqlBrowser. No T-SQL equivalent — service state is OS-level."
+                            Remediation    = "If using a named instance with a fixed TCP port, SQL Browser is not required. Disable in SQL Server Configuration Manager or: Set-DbaService -ComputerName $computerName -Type SqlBrowser -StartupType Disabled. Named instances using dynamic ports require SQL Browser for port resolution — consider switching to a fixed port first (1.2.6)."
+                            Reference      = "PCI DSS v4.0.1 Req 2.2.1"
+                            SqlQuery       = "-- Automated via Get-SqlServices (Private). No T-SQL equivalent — service state is OS-level."
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-1.7: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 2.2.1d: $($_.Exception.Message)" }
 
-                # PCI-1.8 Non-standard TCP port — Req 2.2.7: non-console admin access via encrypted channel.
+                # 1.2.6 Non-standard TCP port — Req 1.2.6: use non-default ports to reduce scan exposure.
                 # Default port 1433 is the primary SQL Server scan target.
                 try {
-                    $tcpPort = Get-DbaTcpPort @connSplat -WarningAction SilentlyContinue | Select-Object -First 1
-                    $port    = if ($tcpPort) { $tcpPort.Port } else { -1 }
+                    $port = $netCfg1.TcpPort
                     if ($port -ne -1) {
                         $splatCheck = @{
-                            CheckId        = "PCI-1.8"
+                            CheckId        = "1.2.6"
                             CheckName      = "Non-Standard TCP Port"
                             Category       = "Secure Configuration"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["1.8"]
+                            Priority       = $pciPriority["1.2.6"]
                             Status         = if ($port -ne 1433) { "Pass" } else { "Fail" }
                             CurrentValue   = $port.ToString()
                             ExpectedValue  = "Any port other than 1433"
                             Remediation    = "Change the TCP port in SQL Server Configuration Manager > SQL Server Network Configuration > Protocols for <instance> > TCP/IP > IP Addresses > IPAll > TCP Port. Restart the SQL Server service to apply."
-                            Reference      = "PCI DSS v4.0.1 Req 2.2.7"
-                            SqlQuery       = "-- Automated via Get-DbaTcpPort. T-SQL: SELECT local_tcp_port FROM sys.dm_exec_connections WHERE session_id = @@SPID;"
+                            Reference      = "PCI DSS v4.0.1 Req 1.2.6"
+                            SqlQuery       = "-- Automated via Get-NetworkConfig (Private). T-SQL: SELECT local_tcp_port FROM sys.dm_exec_connections WHERE session_id = @@SPID;"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-1.8: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 1.2.6: $($_.Exception.Message)" }
 
-                # PCI-1.9 Hide instance — Req 2.2.4: reduce instance discovery surface area.
-                # No dbatools equivalent — querying sys.dm_server_registry.
+                # 2.2.2 Hide instance — Req 2.2.2: use unique default settings on all system components.
                 try {
-                    $hideQuery = @"
-SELECT CAST(value_data AS INT) AS HideInstance
-FROM sys.dm_server_registry
-WHERE registry_key LIKE N'%SuperSocketNetLib%'
-  AND value_name = N'HideInstance';
-"@
-                    $hideResult = Invoke-DbaQuery @connSplat -Query $hideQuery -WarningAction SilentlyContinue
-                    $hidden     = $hideResult -and @($hideResult)[0].HideInstance -eq 1
+                    $hidden = $netCfg1.Hidden
                     $splatCheck = @{
-                        CheckId        = "PCI-1.9"
+                        CheckId        = "2.2.2"
                         CheckName      = "Hide Instance Enabled"
                         Category       = "Secure Configuration"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["1.9"]
+                        Priority       = $pciPriority["2.2.2"]
                         Status         = if ($hidden) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($hidden) { "1 (hidden)" } else { "0 (visible)" }
                         ExpectedValue  = "1 (instance hidden from SQL Browser enumeration)"
                         Remediation    = "Enable in SQL Server Configuration Manager > SQL Server Network Configuration > Protocols for <instance> > Properties > Hide Instance = Yes."
-                        Reference      = "PCI DSS v4.0.1 Req 2.2.4"
-                        SqlQuery       = $hideQuery
+                        Reference      = "PCI DSS v4.0.1 Req 2.2.2"
+                        SqlQuery       = $netCfg1.HideQuery
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-1.9: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 2.2.2: $($_.Exception.Message)" }
             }
 
             # ── §2 Access Control (Req 7–8) ───────────────────────────────────────
             if (ShouldRun "2") {
                 Write-Verbose "[$instance] §2 Access Control"
 
-                # PCI-2.1 Windows-only auth — Req 8.2.1: unique IDs; SQL logins bypass AD MFA controls.
+                $authData2    = Get-AuthMode       -ctx $connSplat
+                $builtinData2 = Get-BuiltinGroups  -ctx $connSplat
+                $guestData2   = Get-GuestAccess    -ctx $connSplat
+                $permData2    = Get-PublicRolePerms -ctx $connSplat
+                $orphanData2  = Get-OrphanedUsers  -ctx $connSplat
+                $sqlData2     = Get-SqlAuthLogins  -ctx $connSplat
+                $sysData2     = Get-SysadminLogins -ctx $connSplat
+
+                # 8.2.1 Windows-only auth — Req 8.2.1: unique IDs; SQL logins bypass AD MFA controls.
                 try {
-                    $authMode = Get-DbaInstanceProperty @connSplat -InstanceProperty LoginMode -WarningAction SilentlyContinue | Select-Object -First 1
-                    $winOnly  = ($authMode.Value -eq 1)
+                    $winOnly = ($authData2.LoginMode -eq 1)
                     $splatCheck = @{
-                        CheckId        = "PCI-2.1"
+                        CheckId        = "8.2.1"
                         CheckName      = "Windows-Only Authentication"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.1"]
+                        Priority       = $pciPriority["8.2.1"]
                         Status         = if ($winOnly) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($winOnly) { "Windows Only" } else { "Mixed Mode" }
                         ExpectedValue  = "Windows Only (LoginMode = 1)"
                         Remediation    = "Mixed mode allows SQL logins that exist outside AD, cannot be centrally deprovisioned, and bypass MFA requirements. Change to Windows Authentication: EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 1  -- Restart required."
                         Reference      = "PCI DSS v4.0.1 Req 8.2.1"
-                        SqlQuery       = "-- Automated via Get-DbaInstanceProperty (SMO LoginMode). T-SQL: SELECT SERVERPROPERTY('IsIntegratedSecurityOnly') AS WindowsAuthOnly;  -- 1 = compliant"
+                        SqlQuery       = "-- Automated via Get-AuthMode (Private). T-SQL: SELECT SERVERPROPERTY('IsIntegratedSecurityOnly') AS WindowsAuthOnly;  -- 1 = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.2.1: $($_.Exception.Message)" }
 
-                # PCI-2.2 BUILTIN groups absent — Req 7.2: access based on job function; local admins bypass provisioning.
+                # 8.2.3 BUILTIN groups absent — Req 8.2.3: shared accounts prohibited; local admins bypass provisioning.
                 try {
-                    $builtins = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Name -like "BUILTIN\*" }
-                    $count = if ($builtins) { @($builtins).Count } else { 0 }
+                    $count = $builtinData2.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-2.2"
+                        CheckId        = "8.2.3"
                         CheckName      = "BUILTIN Groups Absent"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.2"]
+                        Priority       = $pciPriority["8.2.3"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { ($builtins.Name -join ", ") }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { ($builtinData2.Names -join ", ") }
                         ExpectedValue  = "None"
                         Remediation    = "BUILTIN groups grant SQL access to every local administrator outside SQL Server's provisioning process. Confirm domain group equivalents exist, then: USE [master]; DROP LOGIN [BUILTIN\Administrators];"
-                        Reference      = "PCI DSS v4.0.1 Req 7.2"
-                        SqlQuery       = "-- Automated via Get-DbaLogin. T-SQL: SELECT name FROM sys.server_principals WHERE name LIKE 'BUILTIN%';  -- No rows = compliant"
+                        Reference      = "PCI DSS v4.0.1 Req 8.2.3"
+                        SqlQuery       = "-- Automated via Get-BuiltinGroups (Private). T-SQL: SELECT name FROM sys.server_principals WHERE name LIKE 'BUILTIN%';  -- No rows = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.2.3: $($_.Exception.Message)" }
 
-                # PCI-2.3 Guest access revoked — Req 7.2: no access without explicit provisioning.
+                # 7.2.1 Guest access revoked — Req 7.2.1: access based on need-to-know; no implicit provisioning.
                 try {
-                    $guestDbs = Get-DbaDbUser @connSplat -ExcludeDatabase master, msdb, tempdb -User "guest" -WarningAction SilentlyContinue |
-                        Where-Object { $_.HasDbAccess -eq $true }
-                    $count = if ($guestDbs) { @($guestDbs).Count } else { 0 }
+                    $count = $guestData2.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-2.3"
+                        CheckId        = "7.2.1"
                         CheckName      = "Guest Access Revoked"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.3"]
+                        Priority       = $pciPriority["7.2.1"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "Revoked in all user databases" } else { "Active in: $($guestDbs.Database -join ', ')" }
+                        CurrentValue   = if ($count -eq 0) { "Revoked in all user databases" } else { "Active in: $($guestData2.DatabaseNames -join ', ')" }
                         ExpectedValue  = "CONNECT revoked in all user databases"
                         Remediation    = "USE [<database>]; REVOKE CONNECT FROM [guest];"
-                        Reference      = "PCI DSS v4.0.1 Req 7.2"
-                        SqlQuery       = "-- Automated via Get-DbaDbUser. T-SQL per user DB: SELECT permission_name, state_desc FROM sys.database_permissions WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID('guest') AND permission_name = 'CONNECT';"
+                        Reference      = "PCI DSS v4.0.1 Req 7.2.1"
+                        SqlQuery       = "-- Automated via Get-GuestAccess (Private). T-SQL per user DB: SELECT permission_name, state_desc FROM sys.database_permissions WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID('guest') AND permission_name = 'CONNECT';"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 7.2.1: $($_.Exception.Message)" }
 
-                # PCI-2.4 Public role excess permissions — Req 7.2: least privilege; public = all principals.
-                # No dbatools equivalent for server-level public permissions — using Invoke-DbaQuery.
+                # 7.2.1a Public role excess permissions — Req 7.2.1: least privilege; public = all principals.
                 try {
-                    $pubPermQuery = @"
-SELECT COUNT(*) AS Count
-FROM sys.server_permissions
-WHERE grantee_principal_id = 2
-  AND state IN ('G','W')
-  AND type NOT IN (
-      'CO',  -- CONNECT SQL (required for login)
-      'VASM' -- VIEW ANY DATABASE (default in some configs)
-  );
-"@
-                    $pubPerms = Invoke-DbaQuery @connSplat -Query $pubPermQuery -WarningAction SilentlyContinue
-                    $count    = if ($pubPerms) { $pubPerms.Count } else { 0 }
+                    $count = $permData2.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-2.4"
+                        CheckId        = "7.2.1a"
                         CheckName      = "Public Role — No Excess Server Permissions"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.4"]
+                        Priority       = $pciPriority["7.2.1a"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$count non-standard permission(s) granted to public"
                         ExpectedValue  = "0 — only CONNECT SQL is standard for the public role"
                         Remediation    = "Review and revoke: SELECT type_desc, permission_name, state_desc FROM sys.server_permissions WHERE grantee_principal_id = 2 AND state IN ('G','W'); Then: REVOKE <permission> FROM [public];"
-                        Reference      = "PCI DSS v4.0.1 Req 7.2"
-                        SqlQuery       = $pubPermQuery
+                        Reference      = "PCI DSS v4.0.1 Req 7.2.1"
+                        SqlQuery       = $permData2.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 7.2.1a: $($_.Exception.Message)" }
 
-                # PCI-2.5 Orphaned users — Req 7.2: no residual access from deprovisioned accounts.
+                # 8.3.6 Orphaned users — Req 8.3.6: accounts must be removed or disabled when no longer needed.
                 try {
-                    $orphaned = Get-DbaDbOrphanUser @connSplat -WarningAction SilentlyContinue
-                    $count    = if ($orphaned) { @($orphaned).Count } else { 0 }
+                    $count = $orphanData2.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-2.5"
+                        CheckId        = "8.3.6"
                         CheckName      = "No Orphaned Database Users"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.5"]
+                        Priority       = $pciPriority["8.3.6"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count orphaned user(s): $($orphaned.User -join ', ')" }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count orphaned user(s): $($orphanData2.Orphans.User -join ', ')" }
                         ExpectedValue  = "No orphaned users in any database"
                         Remediation    = "Remove orphaned users: Remove-DbaDbOrphanUser -SqlInstance $instance  -- or map to a login: USE [<db>]; ALTER USER [<user>] WITH LOGIN = [<login>];"
-                        Reference      = "PCI DSS v4.0.1 Req 7.2"
-                        SqlQuery       = "-- Automated via Get-DbaDbOrphanUser. T-SQL per DB: SELECT name FROM sys.database_principals WHERE type IN ('S','U','G') AND authentication_type_desc = 'INSTANCE' AND sid NOT IN (SELECT sid FROM sys.server_principals);"
+                        Reference      = "PCI DSS v4.0.1 Req 8.3.6"
+                        SqlQuery       = "-- Automated via Get-OrphanedUsers (Private). T-SQL per DB: SELECT name FROM sys.database_principals WHERE type IN ('S','U','G') AND authentication_type_desc = 'INSTANCE' AND sid NOT IN (SELECT sid FROM sys.server_principals);"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.3.6: $($_.Exception.Message)" }
 
-                # PCI-2.6 SQL logins enforce password policy — Req 8.3.6: password complexity requirements.
+                # 8.3.6a SQL logins enforce password policy — Req 8.3.6: password complexity requirements.
                 try {
-                    $noPolicy = Get-DbaLogin @connSplat -Type SQL -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.PasswordPolicyEnforced }
-                    $count = if ($noPolicy) { @($noPolicy).Count } else { 0 }
+                    $noPolicy2 = @($sqlData2.Logins | Where-Object { -not $_.PasswordPolicyEnforced })
+                    $count     = $noPolicy2.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-2.6"
+                        CheckId        = "8.3.6a"
                         CheckName      = "SQL Login Password Policy Enforced"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.6"]
+                        Priority       = $pciPriority["8.3.6a"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All compliant" } else { "$count login(s) without CHECK_POLICY" }
                         ExpectedValue  = "CHECK_POLICY = ON for all SQL logins"
                         Remediation    = "ALTER LOGIN [<name>] WITH CHECK_POLICY = ON;  -- Enumerate: SELECT name FROM sys.sql_logins WHERE is_policy_checked = 0;"
                         Reference      = "PCI DSS v4.0.1 Req 8.3.6"
-                        SqlQuery       = "-- Automated via Get-DbaLogin (PasswordPolicyEnforced). T-SQL: SELECT name FROM sys.sql_logins WHERE is_policy_checked = 0;  -- No rows = compliant"
+                        SqlQuery       = "-- Automated via Get-SqlAuthLogins (Private). T-SQL: SELECT name FROM sys.sql_logins WHERE is_policy_checked = 0;  -- No rows = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.6: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.3.6a: $($_.Exception.Message)" }
 
-                # PCI-2.7 CHECK_EXPIRATION on privileged SQL logins — Req 8.3.9: periodic password changes.
+                # 8.3.9 CHECK_EXPIRATION on privileged SQL logins — Req 8.3.9: periodic password changes.
                 # No dbatools equivalent for the sysadmin+CONTROL SERVER UNION — using Invoke-DbaQuery.
                 try {
                     $expQuery = @"
@@ -543,11 +527,11 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
                     $expRows = Invoke-DbaQuery @connSplat -Query $expQuery -WarningAction SilentlyContinue
                     $count   = if ($expRows) { @($expRows).Count } else { 0 }
                     $splatCheck = @{
-                        CheckId        = "PCI-2.7"
+                        CheckId        = "8.3.9"
                         CheckName      = "Privileged Login Password Expiration"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.7"]
+                        Priority       = $pciPriority["8.3.9"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All compliant" } else { "$count privileged login(s) without CHECK_EXPIRATION" }
                         ExpectedValue  = "CHECK_EXPIRATION = ON for all privileged SQL logins"
@@ -556,9 +540,9 @@ WHERE p.type = 'CL' AND p.state IN ('G','W')
                         SqlQuery       = $expQuery
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.7: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.3.9: $($_.Exception.Message)" }
 
-                # PCI-2.8 MUST_CHANGE logins — Req 8.2: accounts with MUST_CHANGE pending may indicate
+                # 8.3.6b MUST_CHANGE logins — Req 8.3.6: accounts with MUST_CHANGE pending may indicate
                 # provisioned-but-never-used accounts that bypassed the onboarding process.
                 # No dbatools equivalent — using Invoke-DbaQuery.
                 try {
@@ -570,157 +554,138 @@ WHERE is_must_change = 1 AND is_disabled = 0;
                     $mcRows = Invoke-DbaQuery @connSplat -Query $mcQuery -WarningAction SilentlyContinue
                     $count  = if ($mcRows) { @($mcRows).Count } else { 0 }
                     $splatCheck = @{
-                        CheckId        = "PCI-2.8"
+                        CheckId        = "8.3.6b"
                         CheckName      = "MUST_CHANGE Logins"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["2.8"]
+                        Priority       = $pciPriority["8.3.6b"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Warning" }
                         CurrentValue   = if ($count -eq 0) { "None" } else { "$count login(s) with MUST_CHANGE pending" }
                         ExpectedValue  = "0 — no active logins with a pending forced password change"
                         Remediation    = "Investigate whether these accounts have never been used (provision-and-forget pattern). If the account is legitimate and the user has connected, this clears automatically. Disable unused accounts."
-                        Reference      = "PCI DSS v4.0.1 Req 8.2"
+                        Reference      = "PCI DSS v4.0.1 Req 8.3.6"
                         SqlQuery       = $mcQuery
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.8: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 8.3.6b: $($_.Exception.Message)" }
 
-                # PCI-2.9 Sysadmin membership — Manual: Req 7.2.2 requires least-privilege access documented
+                # 7.2.2 Sysadmin membership — Review: Req 7.2.2 requires least-privilege access documented
                 # and reviewed. Sysadmin bypasses all permission checks and can read all cardholder data.
                 try {
-                    $builtinFilter = @('NT SERVICE\SQLWriter','NT SERVICE\Winmgmt','NT SERVICE\MSSQLSERVER','NT SERVICE\SQLSERVERAGENT')
-                    $sysadmins = Get-DbaServerRoleMember @connSplat -ServerRole sysadmin -WarningAction SilentlyContinue |
-                        Where-Object { $_.Name -notin $builtinFilter -and $_.Name -notlike '##*' }
-                    $count = if ($sysadmins) { @($sysadmins).Count } else { 0 }
+                    $exceptions2 = @('DYNAMICS_SVC')
+                    $sysNames2   = $sysData2.Names
+                    $sqlAuthSys2 = @($sysNames2 | Where-Object { $_ -in $sqlData2.Names })
+                    $winAuthSys2 = @($sysNames2 | Where-Object { $_ -notin $sqlData2.Names })
+                    $excepted2   = @($sqlAuthSys2 | Where-Object { $_ -in $exceptions2 })
+                    $violations2 = @($sqlAuthSys2 | Where-Object { $_ -notin $exceptions2 })
+                    $finding2    = if ($violations2.Count -gt 0) { "SQL auth violations: $($violations2 -join ', ')" } else { "No SQL auth violations" }
                     $splatCheck = @{
-                        CheckId        = "PCI-2.9"
+                        CheckId        = "7.2.2"
                         CheckName      = "Sysadmin Membership Review"
                         Category       = "Access Control"
-                        AssessmentType = "Manual"
-                        Priority       = $pciPriority["2.9"]
-                        Status         = "Manual"
-                        CurrentValue   = "$count non-system account(s) with sysadmin"
+                        AssessmentType = "Review"
+                        Priority       = $pciPriority["7.2.2"]
+                        Status         = if ($violations2.Count -gt 0) { "Fail" } else { "Review" }
+                        CurrentValue   = "Total: $($sysData2.Count) | Windows auth: $($winAuthSys2.Count) | SQL auth: $($sqlAuthSys2.Count) (excepted: $($excepted2.Count), violations: $($violations2.Count)) — $finding2"
                         ExpectedValue  = "Minimum necessary; each account documented and recertified at least every 6 months (PCI DSS Req 7.2.2)"
                         Remediation    = "Review all members: SELECT name, type_desc FROM sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT LIKE '##%'. Remove any not formally approved: ALTER SERVER ROLE sysadmin DROP MEMBER [<account>];"
                         Reference      = "PCI DSS v4.0.1 Req 7.2.2"
-                        SqlQuery       = "-- Automated via Get-DbaServerRoleMember. T-SQL: SELECT DISTINCT name, type_desc FROM master.sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT LIKE '##%';"
+                        SqlQuery       = "-- Automated via Get-SysadminLogins + Get-SqlAuthLogins (Private). T-SQL: SELECT DISTINCT name, type_desc FROM master.sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT LIKE '##%';"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-2.9: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 7.2.2: $($_.Exception.Message)" }
             }
 
             # ── §3 Data Protection (Req 3–4) ─────────────────────────────────────
             if (ShouldRun "3") {
                 Write-Verbose "[$instance] §3 Data Protection"
 
-                # PCI-3.1 TDE scope — Manual: Req 3.5.1 requires PAN rendered unreadable at rest.
+                $tde3     = Get-TdeStatus         -ctx $connSplat
+                $symData3 = Get-SymmetricKeys      -ctx $connSplat
+                $asymData3 = Get-AsymmetricKeys    -ctx $connSplat
+                $netEnc3  = Get-NetworkEncryption  -ctx $connSplat
+
+                # 3.5.1 TDE scope — Review: Req 3.5.1 requires PAN rendered unreadable at rest.
                 # Tool collects evidence; auditor determines which databases are in PAN scope.
                 try {
-                    $unencDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.EncryptionEnabled }
-                    $count = if ($unencDbs) { @($unencDbs).Count } else { 0 }
+                    $nameList3 = if ($tde3.UnencryptedCount -gt 0) { "Unencrypted: $($tde3.UnencryptedNames -join ', ')" } else { "All $($tde3.TotalCount) user database(s) are TDE-encrypted" }
                     $splatCheck = @{
-                        CheckId        = "PCI-3.1"
+                        CheckId        = "3.5.1"
                         CheckName      = "TDE Scope Review"
                         Category       = "Data Protection"
-                        AssessmentType = "Manual"
-                        Priority       = $pciPriority["3.1"]
-                        Status         = "Manual"
-                        CurrentValue   = "$count user database(s) without TDE"
+                        AssessmentType = "Review"
+                        Priority       = $pciPriority["3.5.1"]
+                        Status         = "Review"
+                        CurrentValue   = "Encrypted: $($tde3.EncryptedCount) | Unencrypted: $($tde3.UnencryptedCount) — $nameList3"
                         ExpectedValue  = "TDE enabled on all databases storing PAN or sensitive authentication data"
                         Remediation    = "Identify databases in PCI scope. For each: Enable-DbaDatabaseEncryption -SqlInstance $instance -Database <dbname>  -- Requires a database master key and certificate on master."
                         Reference      = "PCI DSS v4.0.1 Req 3.5.1"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name, is_encrypted FROM sys.databases WHERE database_id > 4 AND is_encrypted = 0;"
+                        SqlQuery       = "-- Automated via Get-TdeStatus (Private). T-SQL: SELECT name, is_encrypted FROM sys.databases WHERE database_id > 4;"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-3.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 3.5.1: $($_.Exception.Message)" }
 
-                # PCI-3.2 Symmetric key algorithms — Req 3.6.1: strong cryptography; AES only.
-                # No dbatools equivalent — using Invoke-DbaQuery per user database.
+                # 3.6.1a Symmetric key algorithms — Req 3.6.1: strong cryptography; AES only.
                 try {
-                    $symKeyQuery = "SELECT COUNT(*) AS WeakKeys FROM sys.symmetric_keys WHERE algorithm_desc NOT IN ('AES_128','AES_192','AES_256');"
-                    $userDbs3    = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $weakKeys    = 0
-                    foreach ($db in @($userDbs3)) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $symKeyQuery -WarningAction SilentlyContinue
-                        if ($r) { $weakKeys += $r.WeakKeys }
-                    }
+                    $weakKeys = $symData3.WeakCount
                     $splatCheck = @{
-                        CheckId        = "PCI-3.2"
+                        CheckId        = "3.6.1a"
                         CheckName      = "Symmetric Key Algorithms — AES Only"
                         Category       = "Data Protection"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["3.2"]
+                        Priority       = $pciPriority["3.6.1a"]
                         Status         = if ($weakKeys -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$weakKeys non-AES symmetric key(s) across all user databases"
                         ExpectedValue  = "0 — all symmetric keys use AES_128, AES_192, or AES_256"
                         Remediation    = "Per database: SELECT name, algorithm_desc FROM sys.symmetric_keys WHERE algorithm_desc NOT IN ('AES_128','AES_192','AES_256'). Recreate non-AES keys using a supported algorithm before dropping the old ones."
                         Reference      = "PCI DSS v4.0.1 Req 3.6.1"
-                        SqlQuery       = $symKeyQuery
+                        SqlQuery       = $symData3.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-3.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 3.6.1a: $($_.Exception.Message)" }
 
-                # PCI-3.3 Asymmetric key size — Req 3.7.1: RSA keys must be at least 2048-bit.
-                # No dbatools equivalent — using Invoke-DbaQuery per user database.
+                # 3.6.1b Asymmetric key size — Req 3.6.1: RSA keys must be at least 2048-bit.
                 try {
-                    $asymKeyQuery = "SELECT COUNT(*) AS ShortKeys FROM sys.asymmetric_keys WHERE key_length < 2048;"
-                    $userDbs3b    = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $shortKeys    = 0
-                    foreach ($db in @($userDbs3b)) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $asymKeyQuery -WarningAction SilentlyContinue
-                        if ($r) { $shortKeys += $r.ShortKeys }
-                    }
+                    $shortKeys = $asymData3.ShortCount
                     $splatCheck = @{
-                        CheckId        = "PCI-3.3"
+                        CheckId        = "3.6.1b"
                         CheckName      = "Asymmetric Key Size — Min 2048-bit"
                         Category       = "Data Protection"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["3.3"]
+                        Priority       = $pciPriority["3.6.1b"]
                         Status         = if ($shortKeys -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$shortKeys asymmetric key(s) shorter than 2048-bit"
                         ExpectedValue  = "0 — all asymmetric keys at least 2048-bit"
                         Remediation    = "Per database: SELECT name, key_length FROM sys.asymmetric_keys WHERE key_length < 2048. Recreate undersized keys with a 2048-bit or 4096-bit RSA key."
-                        Reference      = "PCI DSS v4.0.1 Req 3.7.1"
-                        SqlQuery       = $asymKeyQuery
+                        Reference      = "PCI DSS v4.0.1 Req 3.6.1"
+                        SqlQuery       = $asymData3.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-3.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 3.6.1b: $($_.Exception.Message)" }
 
-                # PCI-3.4 Network encryption — Req 4.2.1: strong cryptography for all data in transit.
-                # No dbatools equivalent — using Invoke-DbaQuery against sys.dm_exec_connections.
+                # 4.2.1 Network encryption — Req 4.2.1: strong cryptography for all data in transit.
                 try {
-                    $q3_4 = @"
-SELECT DISTINCT encrypt_option
-FROM sys.dm_exec_connections c
-WHERE net_transport <> 'Shared memory'
-  AND c.endpoint_id NOT IN (
-      SELECT endpoint_id FROM sys.database_mirroring_endpoints
-      WHERE encryption_algorithm IS NOT NULL
-  );
-"@
-                    $r3_4  = Invoke-DbaQuery @connSplat -Query $q3_4 -WarningAction SilentlyContinue
-                    $unenc = if ($r3_4) { @($r3_4 | Where-Object { $_.encrypt_option -ne "TRUE" }).Count } else { 0 }
+                    $unenc3 = $netEnc3.UnencryptedCount
                     $splatCheck = @{
-                        CheckId        = "PCI-3.4"
+                        CheckId        = "4.2.1"
                         CheckName      = "Network Encryption Enforced"
                         Category       = "Data Protection"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["3.4"]
-                        Status         = if ($unenc -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($unenc -eq 0) { "All non-shared-memory connections encrypted" } else { "$unenc unencrypted connection type(s) detected" }
+                        Priority       = $pciPriority["4.2.1"]
+                        Status         = if ($unenc3 -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($unenc3 -eq 0) { "All non-shared-memory connections encrypted" } else { "$unenc3 unencrypted connection type(s) detected" }
                         ExpectedValue  = "All non-shared-memory connections encrypted"
                         Remediation    = "Enable Force Encryption in SQL Server Configuration Manager > SQL Server Network Configuration > Protocols > Properties > Force Encryption = Yes. A trusted certificate is required."
                         Reference      = "PCI DSS v4.0.1 Req 4.2.1"
-                        SqlQuery       = $q3_4
+                        SqlQuery       = $netEnc3.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-3.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 4.2.1: $($_.Exception.Message)" }
 
-                # PCI-3.5 Backup encryption — Req 3.5.1: PAN must be unreadable wherever stored, including backups.
+                # 3.5.1a Backup encryption — Req 3.5.1: PAN must be unreadable wherever stored, including backups.
                 # No dbatools equivalent — using Invoke-DbaQuery against msdb.dbo.backupset.
                 try {
-                    $q3_5 = @"
+                    $q3_5_1a = @"
 SELECT COUNT(*) AS UnencBackups
 FROM msdb.dbo.backupset b
 JOIN sys.databases d ON b.database_name = d.name
@@ -729,42 +694,38 @@ WHERE b.key_algorithm IS NULL
   AND d.is_encrypted = 0
   AND b.backup_finish_date >= DATEADD(DAY, -30, GETDATE());
 "@
-                    $r3_5 = Invoke-DbaQuery @connSplat -Query $q3_5 -WarningAction SilentlyContinue
-                    $count = if ($r3_5) { $r3_5.UnencBackups } else { 0 }
+                    $r3_5_1a = Invoke-DbaQuery @connSplat -Query $q3_5_1a -WarningAction SilentlyContinue
+                    $count   = if ($r3_5_1a) { $r3_5_1a.UnencBackups } else { 0 }
                     $splatCheck = @{
-                        CheckId        = "PCI-3.5"
+                        CheckId        = "3.5.1a"
                         CheckName      = "Backup Encryption"
                         Category       = "Data Protection"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["3.5"]
+                        Priority       = $pciPriority["3.5.1a"]
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$count unencrypted backup record(s) in the past 30 days"
                         ExpectedValue  = "0 — all backups encrypted or database encrypted via TDE"
                         Remediation    = "Enable backup encryption via the WITH ENCRYPTION clause on BACKUP DATABASE, or enable TDE on PAN-scope databases (TDE-encrypted databases produce automatically encrypted backups)."
                         Reference      = "PCI DSS v4.0.1 Req 3.5.1"
-                        SqlQuery       = $q3_5
+                        SqlQuery       = $q3_5_1a
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-3.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 3.5.1a: $($_.Exception.Message)" }
             }
 
             # ── §4 Audit & Logging (Req 10) ───────────────────────────────────────
             if (ShouldRun "4") {
                 Write-Verbose "[$instance] §4 Audit & Logging"
 
-                # PCI-4.1 SQL Server Audit — Req 10.2.1: capture all required event categories.
+                $auditData4  = Get-SqlAudits        -ctx $connSplat
+                $auditLevel4 = Get-LoginAuditLevel  -ctx $connSplat
+                $retData4    = Get-ErrorLogRetention -ctx $connSplat
+                $traceData4  = Get-DefaultTrace      -ctx $connSplat
+
+                # 10.2.1 SQL Server Audit — Req 10.2.1: capture all required event categories.
                 # PCI requires 6 action groups (adds SCHEMA_OBJECT_CHANGE_GROUP vs SOX 5).
-                # No dbatools equivalent for server audit specification details — using Invoke-DbaQuery.
                 try {
-                    $auditQuery = @"
-SELECT SAD.audit_action_name, S.is_state_enabled AS AuditEnabled, SA.is_state_enabled AS SpecEnabled
-FROM sys.server_audit_specification_details AS SAD
-JOIN sys.server_audit_specifications AS SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits AS S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('LGFL','LGSD','ADDP','ADSP','CNAU','SCHM');
-"@
-                    $auditRows   = Invoke-DbaQuery @connSplat -Query $auditQuery -WarningAction SilentlyContinue
-                    $required    = @(
+                    $required4 = @(
                         "FAILED_LOGIN_GROUP",
                         "SUCCESSFUL_LOGIN_GROUP",
                         "DATABASE_ROLE_MEMBER_CHANGE_GROUP",
@@ -772,169 +733,146 @@ WHERE SAD.audit_action_id IN ('LGFL','LGSD','ADDP','ADSP','CNAU','SCHM');
                         "AUDIT_CHANGE_GROUP",
                         "SCHEMA_OBJECT_CHANGE_GROUP"
                     )
-                    $foundGroups = if ($auditRows) {
-                        @($auditRows | Where-Object { $_.AuditEnabled -and $_.SpecEnabled } |
-                            Select-Object -ExpandProperty audit_action_name -Unique)
-                    } else { @() }
-                    $missing   = $required | Where-Object { $_ -notin $foundGroups }
-                    $compliant = $missing.Count -eq 0
+                    $foundGroups4 = @($auditData4.ActionNames | Where-Object { $_ -in $required4 })
+                    $missing4     = $required4 | Where-Object { $_ -notin $foundGroups4 }
+                    $compliant4   = $missing4.Count -eq 0
                     $splatCheck = @{
-                        CheckId        = "PCI-4.1"
+                        CheckId        = "10.2.1"
                         CheckName      = "SQL Server Audit — PCI Action Groups"
                         Category       = "Audit"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["4.1"]
-                        Status         = if ($compliant) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($foundGroups.Count -eq 0) { "No enabled audit" } else { "$($foundGroups.Count) of $($required.Count) required groups captured" }
+                        Priority       = $pciPriority["10.2.1"]
+                        Status         = if ($compliant4) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($foundGroups4.Count -eq 0) { "No enabled audit" } else { "$($foundGroups4.Count) of $($required4.Count) required groups captured" }
                         ExpectedValue  = "All 6 PCI action groups enabled in an active audit and specification"
-                        Remediation    = if ($compliant) { $null } else { "Missing groups: $($missing -join ', '). Create a SERVER AUDIT targeted to a protected file path with 90-day retention and a SERVER AUDIT SPECIFICATION covering all 6 action groups." }
+                        Remediation    = if ($compliant4) { $null } else { "Missing groups: $($missing4 -join ', '). Create a SERVER AUDIT targeted to a protected file path with 90-day retention and a SERVER AUDIT SPECIFICATION covering all 6 action groups." }
                         Reference      = "PCI DSS v4.0.1 Req 10.2.1"
-                        SqlQuery       = $auditQuery
+                        SqlQuery       = $auditData4.SpecQuery
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-4.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 10.2.1: $($_.Exception.Message)" }
 
-                # PCI-4.2 Login audit level — Req 10.2.1.4: log all invalid logical access attempts.
-                # No dbatools equivalent for xp_loginconfig output — using Invoke-DbaQuery.
+                # 10.2.1.4 Login audit level — Req 10.2.1.4: log all invalid logical access attempts.
                 try {
-                    $auditLevel = Invoke-DbaQuery @connSplat -Query "EXEC xp_loginconfig 'audit level';" -WarningAction SilentlyContinue
-                    $rawLevel   = if ($auditLevel -and $auditLevel[0]) { $auditLevel[0].config_value } else { $null }
-                    $level      = if ($null -ne $rawLevel) { $rawLevel.Trim() } else { "none" }
+                    $level4 = $auditLevel4.Level
                     $splatCheck = @{
-                        CheckId        = "PCI-4.2"
+                        CheckId        = "10.2.1.4"
                         CheckName      = "Login Audit Level"
                         Category       = "Audit"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["4.2"]
-                        Status         = if ($level -in "all", "failure") { "Pass" } else { "Fail" }
-                        CurrentValue   = $level
+                        Priority       = $pciPriority["10.2.1.4"]
+                        Status         = if ($level4 -in "all", "failure") { "Pass" } else { "Fail" }
+                        CurrentValue   = $level4
                         ExpectedValue  = "failure or all"
                         Remediation    = "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'AuditLevel', REG_DWORD, 2  -- 2 = failure, 3 = all. SQL Server service restart required."
                         Reference      = "PCI DSS v4.0.1 Req 10.2.1.4"
                         SqlQuery       = "EXEC xp_loginconfig 'audit level';  -- config_value should be 'failure' or 'all'"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-4.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 10.2.1.4: $($_.Exception.Message)" }
 
-                # PCI-4.3 Error log retention >= 12 — Req 10.5.1: retain audit logs for at least 12 months.
+                # 10.7.1 Error log retention >= 12 — Req 10.7.1: retain audit logs for at least 12 months.
                 try {
-                    $logCfg   = Get-DbaErrorLogConfig @connSplat -WarningAction SilentlyContinue | Select-Object -First 1
-                    $rawCount = if ($logCfg) { $logCfg.LogCount } else { -1 }
-                    $count    = if ($rawCount -lt 0) { 6 } else { $rawCount }
-                    $display  = if ($rawCount -lt 0) { "default (6) — registry key absent" } else { $count.ToString() }
+                    $count4   = $retData4.Count
+                    $display4 = $retData4.Display
                     $splatCheck = @{
-                        CheckId        = "PCI-4.3"
+                        CheckId        = "10.7.1"
                         CheckName      = "Error Log Retention — Min 12"
                         Category       = "Audit"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["4.3"]
-                        Status         = if ($count -ge 12) { "Pass" } else { "Fail" }
-                        CurrentValue   = $display
+                        Priority       = $pciPriority["10.7.1"]
+                        Status         = if ($count4 -ge 12) { "Pass" } else { "Fail" }
+                        CurrentValue   = $display4
                         ExpectedValue  = "12 or more"
-                        Remediation    = "Set-DbaErrorLogConfig -SqlInstance $instance -LogCount 12  -- Note: SQL Server error log recycling is not a substitute for a dedicated audit trail. PCI Req 10.5.1 requires a separate audit log solution with 12-month retention and 3-month online availability."
-                        Reference      = "PCI DSS v4.0.1 Req 10.5.1"
-                        SqlQuery       = "-- Automated via Get-DbaErrorLogConfig. T-SQL: DECLARE @n INT; EXEC master.sys.xp_instance_regread N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'NumErrorLogs', @n OUTPUT; SELECT ISNULL(@n, 6) AS NumberOfLogFiles;"
+                        Remediation    = "Set-DbaErrorLogConfig -SqlInstance $instance -LogCount 12  -- Note: SQL Server error log recycling is not a substitute for a dedicated audit trail. PCI Req 10.7.1 requires a separate audit log solution with 12-month retention and 3-month online availability."
+                        Reference      = "PCI DSS v4.0.1 Req 10.7.1"
+                        SqlQuery       = "-- Automated via Get-ErrorLogRetention (Private). T-SQL: DECLARE @n INT; EXEC master.sys.xp_instance_regread N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'NumErrorLogs', @n OUTPUT; SELECT ISNULL(@n, 6) AS NumberOfLogFiles;"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-4.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 10.7.1: $($_.Exception.Message)" }
 
-                # PCI-4.4 Default trace enabled — Req 10.2: baseline change and security event evidence.
+                # 10.2.1a Default trace enabled — Req 10.2.1: baseline change and security event evidence.
                 try {
-                    $defTrace = Get-DbaSpConfigure @connSplat -Name "DefaultTraceEnabled" -WarningAction SilentlyContinue | Select-Object -First 1
-                    if ($defTrace) {
+                    $defTrace4 = $traceData4.Config
+                    if ($defTrace4) {
                         $splatCheck = @{
-                            CheckId        = "PCI-4.4"
+                            CheckId        = "10.2.1a"
                             CheckName      = "Default Trace Enabled"
                             Category       = "Audit"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["4.4"]
-                            Status         = if ($defTrace.RunningValue -eq 1) { "Pass" } else { "Fail" }
-                            CurrentValue   = $defTrace.RunningValue.ToString()
+                            Priority       = $pciPriority["10.2.1a"]
+                            Status         = if ($defTrace4.RunningValue -eq 1) { "Pass" } else { "Fail" }
+                            CurrentValue   = $defTrace4.RunningValue.ToString()
                             ExpectedValue  = "1"
                             Remediation    = "EXEC sp_configure 'default trace enabled', 1; RECONFIGURE;"
-                            Reference      = "PCI DSS v4.0.1 Req 10.2"
+                            Reference      = "PCI DSS v4.0.1 Req 10.2.1"
                             SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name = 'default trace enabled';"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-4.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 10.2.1a: $($_.Exception.Message)" }
 
-                # PCI-4.5 Audit captures role membership changes — Req 10.2.1.5: changes to
+                # 10.2.1.5 Audit captures role membership changes — Req 10.2.1.5: changes to
                 # identification and authentication mechanisms must be logged.
-                # No dbatools equivalent — using Invoke-DbaQuery.
                 try {
-                    $roleAuditQuery = @"
-SELECT COUNT(*) AS Found
-FROM sys.server_audit_specification_details SAD
-JOIN sys.server_audit_specifications SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('ADSP','ADDP')
-  AND S.is_state_enabled = 1 AND SA.is_state_enabled = 1;
-"@
-                    $roleAudit = Invoke-DbaQuery @connSplat -Query $roleAuditQuery -WarningAction SilentlyContinue
-                    $found     = $roleAudit -and $roleAudit.Found -gt 0
+                    $found4_5 = ($auditData4.EnabledRows | Where-Object { $_.audit_action_id -in 'ADSP', 'ADDP' }).Count -gt 0
                     $splatCheck = @{
-                        CheckId        = "PCI-4.5"
+                        CheckId        = "10.2.1.5"
                         CheckName      = "Audit — Role Membership Changes"
                         Category       = "Audit"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["4.5"]
-                        Status         = if ($found) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($found) { "Configured" } else { "Not configured" }
+                        Priority       = $pciPriority["10.2.1.5"]
+                        Status         = if ($found4_5) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($found4_5) { "Configured" } else { "Not configured" }
                         ExpectedValue  = "SERVER_ROLE_MEMBER_CHANGE_GROUP and DATABASE_ROLE_MEMBER_CHANGE_GROUP captured"
                         Remediation    = "Add SERVER_ROLE_MEMBER_CHANGE_GROUP and DATABASE_ROLE_MEMBER_CHANGE_GROUP to your active server audit specification."
                         Reference      = "PCI DSS v4.0.1 Req 10.2.1.5"
-                        SqlQuery       = $roleAuditQuery
+                        SqlQuery       = $auditData4.SpecQuery
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-4.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 10.2.1.5: $($_.Exception.Message)" }
 
-                # PCI-4.6 Audit captures DDL/schema changes — Req 10.2.1.2: object-level access to
+                # 10.2.1.2 Audit captures DDL/schema changes — Req 10.2.1.2: object-level access to
                 # cardholder data and schema changes must be recorded.
-                # No dbatools equivalent — using Invoke-DbaQuery.
                 try {
-                    $ddlAuditQuery = @"
-SELECT COUNT(*) AS Found
-FROM sys.server_audit_specification_details SAD
-JOIN sys.server_audit_specifications SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('SCHM','DAUC','CDBR')
-  AND S.is_state_enabled = 1 AND SA.is_state_enabled = 1;
-"@
-                    $ddlAudit = Invoke-DbaQuery @connSplat -Query $ddlAuditQuery -WarningAction SilentlyContinue
-                    $found    = $ddlAudit -and $ddlAudit.Found -gt 0
+                    $found4_2 = ($auditData4.EnabledRows | Where-Object { $_.audit_action_id -in 'SCHM', 'DAUC', 'CDBR' }).Count -gt 0
                     $splatCheck = @{
-                        CheckId        = "PCI-4.6"
+                        CheckId        = "10.2.1.2"
                         CheckName      = "Audit — DDL / Schema Changes"
                         Category       = "Audit"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["4.6"]
-                        Status         = if ($found) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($found) { "Configured" } else { "Not configured" }
+                        Priority       = $pciPriority["10.2.1.2"]
+                        Status         = if ($found4_2) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($found4_2) { "Configured" } else { "Not configured" }
                         ExpectedValue  = "SCHEMA_OBJECT_CHANGE_GROUP or DATABASE_CHANGE_GROUP captured"
                         Remediation    = "Add SCHEMA_OBJECT_CHANGE_GROUP to your active server audit specification. For database-level coverage on PCI-scope databases: CREATE DATABASE AUDIT SPECIFICATION covering SCHEMA_OBJECT_CHANGE_GROUP."
                         Reference      = "PCI DSS v4.0.1 Req 10.2.1.2"
-                        SqlQuery       = $ddlAuditQuery
+                        SqlQuery       = $auditData4.SpecQuery
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-4.6: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 10.2.1.2: $($_.Exception.Message)" }
             }
 
             # ── §5 Vulnerability Management (Req 6) ──────────────────────────────
             if (ShouldRun "5") {
                 Write-Verbose "[$instance] §5 Vulnerability Management"
 
-                # PCI-5.1 Patch level — Req 6.3.3: critical security patches within 1 month.
+                $checkData5 = Get-CheckDbHistory -ctx $connSplat
+                $dbStatus5  = Get-DatabaseStatus -ctx $connSplat
+                $dbCfg5     = Get-DatabaseConfig -ctx $connSplat
+                $clrData5   = Get-ClrAssemblies  -ctx $connSplat
+
+                # 6.3.3 Patch level — Req 6.3.3: critical security patches within 1 month.
                 # Test-DbaBuild -Latest -Update returns Compliant, BuildLevel, BuildTarget, and CUTarget.
                 try {
                     $build = Test-DbaBuild @connSplat -Latest -Update -WarningAction SilentlyContinue | Select-Object -First 1
                     if ($build) {
                         $splatCheck = @{
-                            CheckId        = "PCI-5.1"
+                            CheckId        = "6.3.3"
                             CheckName      = "Patch Level — Req 6.3.3"
                             Category       = "Vulnerability Management"
                             AssessmentType = "Automated"
-                            Priority       = $pciPriority["5.1"]
+                            Priority       = $pciPriority["6.3.3"]
                             Status         = if ($build.Compliant) { "Pass" } else { "Fail" }
                             CurrentValue   = $build.BuildLevel.ToString()
                             ExpectedValue  = $build.BuildTarget.ToString()
@@ -944,99 +882,86 @@ WHERE SAD.audit_action_id IN ('SCHM','DAUC','CDBR')
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] PCI-5.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 6.3.3: $($_.Exception.Message)" }
 
-                # PCI-5.2 DBCC CHECKDB within 7 days — structural integrity is a pre-condition for data reliability.
+                # 6.3.3a DBCC CHECKDB within 7 days — structural integrity is a pre-condition for data reliability.
                 try {
-                    $checkdbInfo  = Get-DbaLastGoodCheckDb @connSplat -ExcludeDatabase tempdb -WarningAction SilentlyContinue
-                    $staleCheckdb = @($checkdbInfo | Where-Object {
-                        $null -eq $_.LastGoodCheckDb -or $_.LastGoodCheckDb -lt (Get-Date).AddDays(-7)
-                    })
-                    $count = $staleCheckdb.Count
+                    $count5a = $checkData5.StaleCount
                     $splatCheck = @{
-                        CheckId        = "PCI-5.2"
+                        CheckId        = "6.3.3a"
                         CheckName      = "DBCC CHECKDB Within 7 Days"
                         Category       = "Vulnerability Management"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["5.2"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All databases checked within 7 days" } else { "$count database(s) overdue: $($staleCheckdb.Database -join ', ')" }
+                        Priority       = $pciPriority["6.3.3a"]
+                        Status         = if ($count5a -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count5a -eq 0) { "All databases checked within 7 days" } else { "$count5a database(s) overdue: $($checkData5.Stale.Database -join ', ')" }
                         ExpectedValue  = "DBCC CHECKDB completed within 7 days on all databases"
                         Remediation    = "Schedule integrity checks: Invoke-DbaDbIntegrityCheck -SqlInstance $instance -Database <db>  -- or use Ola Hallengren's DatabaseIntegrityCheck job."
-                        Reference      = "PCI DSS v4.0.1 Req 6"
-                        SqlQuery       = "-- Automated via Get-DbaLastGoodCheckDb. T-SQL reference: DBCC DBINFO() WITH TABLERESULTS;  -- Look for dbi_dbccLastKnownGood."
+                        Reference      = "PCI DSS v4.0.1 Req 6.3.3"
+                        SqlQuery       = "-- Automated via Get-CheckDbHistory (Private). T-SQL reference: DBCC DBINFO() WITH TABLERESULTS;  -- Look for dbi_dbccLastKnownGood."
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-5.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 6.3.3a: $($_.Exception.Message)" }
 
-                # PCI-5.3 All user databases accessible — inaccessible databases indicate a potential breach or failure.
+                # 6.3.3b All user databases accessible — inaccessible databases indicate a potential breach or failure.
                 try {
-                    $problemDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.IsAccessible }
-                    $count = if ($problemDbs) { @($problemDbs).Count } else { 0 }
+                    $inacc5  = $dbStatus5.Inaccessible
+                    $count5b = $inacc5.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-5.3"
+                        CheckId        = "6.3.3b"
                         CheckName      = "All User Databases Accessible"
                         Category       = "Vulnerability Management"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["5.3"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All user databases accessible" } else { "$count inaccessible: $($problemDbs.Name -join ', ')" }
+                        Priority       = $pciPriority["6.3.3b"]
+                        Status         = if ($count5b -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count5b -eq 0) { "All user databases accessible" } else { "$count5b inaccessible: $($inacc5.Name -join ', ')" }
                         ExpectedValue  = "All user databases in an accessible state"
                         Remediation    = "Investigate inaccessible databases in the SQL Server error log. Databases in Suspect or Recovery_Pending state may indicate corruption or an incomplete restore."
-                        Reference      = "PCI DSS v4.0.1 Req 6"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase (IsAccessible). T-SQL: SELECT name, state_desc FROM sys.databases WHERE database_id > 4 AND state <> 0;  -- state 0 = ONLINE"
+                        Reference      = "PCI DSS v4.0.1 Req 6.3.3"
+                        SqlQuery       = "-- Automated via Get-DatabaseStatus (Private). T-SQL: SELECT name, state_desc FROM sys.databases WHERE database_id > 4 AND state <> 0;  -- state 0 = ONLINE"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-5.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 6.3.3b: $($_.Exception.Message)" }
 
-                # PCI-5.4 Page verify CHECKSUM — detects I/O-layer corruption before it silently spreads.
+                # 6.3.3c Page verify CHECKSUM — detects I/O-layer corruption before it silently spreads.
                 try {
-                    $noCksum = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { $_.PageVerify -ne "Checksum" }
-                    $count = if ($noCksum) { @($noCksum).Count } else { 0 }
+                    $noCksum5 = $dbCfg5.NoChecksum
+                    $count5c  = $noCksum5.Count
                     $splatCheck = @{
-                        CheckId        = "PCI-5.4"
+                        CheckId        = "6.3.3c"
                         CheckName      = "Page Verify CHECKSUM"
                         Category       = "Vulnerability Management"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["5.4"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All user databases use CHECKSUM" } else { "$count database(s) without CHECKSUM: $($noCksum.Name -join ', ')" }
+                        Priority       = $pciPriority["6.3.3c"]
+                        Status         = if ($count5c -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count5c -eq 0) { "All user databases use CHECKSUM" } else { "$count5c database(s) without CHECKSUM: $($noCksum5.Name -join ', ')" }
                         ExpectedValue  = "PAGE_VERIFY = CHECKSUM for all user databases"
                         Remediation    = "ALTER DATABASE [<dbname>] SET PAGE_VERIFY CHECKSUM;"
-                        Reference      = "PCI DSS v4.0.1 Req 6"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name, page_verify_option_desc FROM sys.databases WHERE database_id > 4 AND page_verify_option_desc <> 'CHECKSUM';"
+                        Reference      = "PCI DSS v4.0.1 Req 6.3.3"
+                        SqlQuery       = "-- Automated via Get-DatabaseConfig (Private). T-SQL: SELECT name, page_verify_option_desc FROM sys.databases WHERE database_id > 4 AND page_verify_option_desc <> 'CHECKSUM';"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-5.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 6.3.3c: $($_.Exception.Message)" }
 
-                # PCI-5.5 UNSAFE CLR assemblies — Req 6.3.2: identify and address security vulnerabilities.
+                # 6.2.4a UNSAFE CLR assemblies — Req 6.2.4: identify and address security vulnerabilities.
                 # UNSAFE assemblies can call arbitrary Win32 APIs and read/write the file system.
-                # No dbatools equivalent — using Invoke-DbaQuery per user database.
                 try {
-                    $clrUnsafeQuery = "SELECT COUNT(*) AS UnsafeAssemblies FROM sys.assemblies WHERE permission_set_desc = 'UNSAFE_ACCESS' AND is_user_defined = 1;"
-                    $userDbs5       = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $unsafeCount    = 0
-                    foreach ($db in @($userDbs5)) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $clrUnsafeQuery -WarningAction SilentlyContinue
-                        if ($r) { $unsafeCount += $r.UnsafeAssemblies }
-                    }
+                    $unsafeCount5 = $clrData5.UnsafeCount
                     $splatCheck = @{
-                        CheckId        = "PCI-5.5"
+                        CheckId        = "6.2.4a"
                         CheckName      = "No UNSAFE CLR Assemblies"
                         Category       = "Vulnerability Management"
                         AssessmentType = "Automated"
-                        Priority       = $pciPriority["5.5"]
-                        Status         = if ($unsafeCount -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = "$unsafeCount UNSAFE CLR assembly/assemblies across all user databases"
+                        Priority       = $pciPriority["6.2.4a"]
+                        Status         = if ($unsafeCount5 -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = "$unsafeCount5 UNSAFE CLR assembly/assemblies across all user databases"
                         ExpectedValue  = "0 — no user-defined assemblies with UNSAFE_ACCESS permission set"
                         Remediation    = "Per database: SELECT name, permission_set_desc FROM sys.assemblies WHERE permission_set_desc = 'UNSAFE_ACCESS' AND is_user_defined = 1. Review each assembly for necessity. Recreate with SAFE or EXTERNAL_ACCESS where possible; drop if not required."
-                        Reference      = "PCI DSS v4.0.1 Req 6.3.2"
-                        SqlQuery       = $clrUnsafeQuery
+                        Reference      = "PCI DSS v4.0.1 Req 6.2.4"
+                        SqlQuery       = $clrData5.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] PCI-5.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] 6.2.4a: $($_.Exception.Message)" }
             }
 
             Write-Verbose "[$instance] PCI assessment complete"

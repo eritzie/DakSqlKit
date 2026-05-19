@@ -12,6 +12,7 @@
         'Test-DakCISBenchmark',
         'Test-DakDbConfig',
         'Test-DakPCIBenchmark',
+        'Test-DakSOC2Benchmark',
         'Test-DakSOXBenchmark'
     )
     PrivateData       = @{

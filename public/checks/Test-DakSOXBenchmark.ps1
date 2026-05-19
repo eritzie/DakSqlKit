@@ -1,26 +1,30 @@
+Get-ChildItem "$PSScriptRoot\Private\*.ps1" | ForEach-Object { . $_.FullName }
+
 function Test-DakSOXBenchmark {
     <#
     .SYNOPSIS
-        Tests SQL Server instances against SOX IT General Controls.
+        Tests SQL Server instances against SOX IT General Controls (ITGC).
 
     .DESCRIPTION
         Evaluates SQL Server configuration and operational state against
         Sarbanes-Oxley (SOX) Section 404 IT general control requirements.
         Returns one result object per check per instance (type: DakSqlKit.AuditResult).
 
-        SOX IT general controls assessed:
-            §1 — Access & Identity Controls   ( 8 checks: SOX-1.1–1.8)
-            §2 — Audit & Logging              ( 6 checks: SOX-2.1–2.6)
-            §3 — Change Management            ( 5 checks: SOX-3.1–3.5)
-            §4 — Data Integrity & Recovery    ( 8 checks: SOX-4.1–4.8)
-            §5 — Encryption                   ( 4 checks: SOX-5.1–5.4)
+        SOX ITGC controls assessed:
+            §AC — Access Controls          (13 checks: ITGC-AC-01 – ITGC-AC-11)
+            §CM — Change Management        ( 1 check : ITGC-CM-05)
+            §OP — Computer Operations      ( 6 checks: ITGC-OP-01 – ITGC-OP-05)
+            §BA — Backup and Recovery      ( 6 checks: ITGC-BA-01 – ITGC-BA-05)
+            §LS — Logical Security/Config  ( 7 checks: ITGC-LS-01 – ITGC-LS-05)
+            §AL — Audit Logging            ( 7 checks: ITGC-AL-01 – ITGC-AL-04)
 
         AssessmentType on each result:
             Automated — pass/fail determined by the tool
+            Review    — tool collected evidence; a human must sign off on the finding
             Manual    — tool collected evidence; a human must determine compliance
 
-        Manual results always have Compliant = $null and a Remediation note with the
-        audit procedure the reviewer must perform.
+        Review results have Compliant = $null. Status is Review unless a hard
+        violation was detected, in which case Status may be Fail.
 
     .PARAMETER SqlInstance
         One or more SQL Server instances. Accepts pipeline input by value and by
@@ -30,10 +34,10 @@ function Test-DakSOXBenchmark {
         SQL Server auth credential. Omit for Windows auth.
 
     .PARAMETER Section
-        SOX sections to run: 1–5, or All. Default: All.
+        ITGC categories to run: AC, CM, OP, BA, LS, AL, or All. Default: All.
 
     .PARAMETER FailedOnly
-        Return only Fail, Warning, and Manual results.
+        Return only Fail, Warning, Review, and Manual results.
 
     .PARAMETER Quiet
         Suppress console progress output.
@@ -45,7 +49,7 @@ function Test-DakSOXBenchmark {
         Test-DakSOXBenchmark -SqlInstance 'SQLPROD01' -FailedOnly | Format-Table -AutoSize
 
     .EXAMPLE
-        Get-DbaRegisteredServer -Group Production | Test-DakSOXBenchmark -Section 1,2
+        Get-DbaRegisteredServer -Group Production | Test-DakSOXBenchmark -Section AC,AL
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -57,7 +61,7 @@ function Test-DakSOXBenchmark {
         [PSCredential]$SqlCredential,
 
         [Parameter()]
-        [ValidateSet("1", "2", "3", "4", "5", "All")]
+        [ValidateSet("AC", "CM", "OP", "BA", "LS", "AL", "All")]
         [string[]]$Section = "All",
 
         [Parameter()]
@@ -79,40 +83,6 @@ function Test-DakSOXBenchmark {
         $runBy   = "$env:USERDOMAIN\$env:USERNAME"
 
         function ShouldRun ([string]$s) { $runAll -or $Section -contains $s }
-
-        $soxPriority = @{
-            "1.1"  = "High"     # Mixed mode bypasses AD — SOX access provisioning becomes unenforceable
-            "1.2"  = "High"     # Enabled sa is an always-present privileged target
-            "1.3"  = "Medium"   # sa name is universally known; rename reduces targeted attack risk
-            "1.4"  = "High"     # BUILTIN groups give all local admins SQL access outside provisioning
-            "1.5"  = "Medium"   # Guest bypasses the formal user provisioning process
-            "1.6"  = "High"     # Weak password policy undermines SOX access control objectives
-            "1.7"  = "High"     # Unexpired privileged passwords are an access control gap
-            "1.8"  = "Critical" # Sysadmin = unrestricted change capability; must be formally certified
-            "2.1"  = "Critical" # Audit trail is the primary SOX detective control
-            "2.2"  = "High"     # Capturing only success hides failed access attempts
-            "2.3"  = "Medium"   # Short retention limits the forensic investigation window
-            "2.4"  = "Low"      # Default trace provides baseline change evidence
-            "2.5"  = "High"     # Role membership changes must be attributable and auditable
-            "2.6"  = "High"     # Schema changes to financial objects must be tracked
-            "3.1"  = "Medium"   # Ownerless jobs have no change accountability chain
-            "3.2"  = "Medium"   # No operator means no notification for critical operational failures
-            "3.3"  = "High"     # Severity 19-25 errors indicate data-threatening conditions
-            "3.4"  = "Medium"   # I/O errors 823/824/825 indicate potential silent data corruption
-            "3.5"  = "Low"      # Database Mail is the delivery mechanism for operator alerts
-            "4.1"  = "Critical" # Missing backups means no recovery — SOX availability control failure
-            "4.2"  = "High"     # Unvalidated integrity is a SOX data quality risk
-            "4.3"  = "High"     # Inaccessible databases mean SOX-scope data is unavailable
-            "4.4"  = "High"     # Simple recovery model prevents point-in-time restore
-            "4.5"  = "High"     # Long RPO gap defeats the purpose of a full recovery model
-            "4.6"  = "Medium"   # CHECKSUM detects page corruption before it causes permanent loss
-            "4.7"  = "Low"      # AUTO_CLOSE flushes connections without notice — availability risk
-            "4.8"  = "Medium"   # AUTO_SHRINK causes fragmentation and unexpected I/O load
-            "5.1"  = "High"     # Unencrypted connections expose financial data in transit
-            "5.2"  = "High"     # Unencrypted backups of financial data violate SOX data security
-            "5.3"  = "Medium"   # TDE scope is environment-specific; requires manual scope review
-            "5.4"  = "Low"      # Weak symmetric key algorithms undermine data protection controls
-        }
     }
 
     process {
@@ -122,7 +92,7 @@ function Test-DakSOXBenchmark {
             $computerName = ($instance -split "\\")[0].Split(",")[0]
 
             if (-not $Quiet) { Write-Host "SOX IT General Controls — $instance  ($($runDate.ToString("yyyy-MM-dd HH:mm:ss")))" -ForegroundColor White }
-            Write-Verbose "[$instance] SOX assessment — $($runDate.ToString("yyyy-MM-dd HH:mm:ss")) — $runBy"
+            Write-Verbose "[$instance] SOX ITGC assessment — $($runDate.ToString("yyyy-MM-dd HH:mm:ss")) — $runBy"
 
             $sharedParams = @{
                 ComputerName = $computerName
@@ -135,154 +105,312 @@ function Test-DakSOXBenchmark {
             $emit = {
                 param ([PSCustomObject]$r)
                 $color = switch ($r.Status) {
-                    "Pass"    { "Green"  }
-                    "Fail"    { "Red"    }
-                    "Warning" { "Yellow" }
-                    "Manual"  { "Cyan"   }
-                    default   { "Gray"   }
+                    "Pass"    { "Green"   }
+                    "Fail"    { "Red"     }
+                    "Warning" { "Yellow"  }
+                    "Manual"  { "Cyan"    }
+                    "Review"  { "Magenta" }
+                    default   { "Gray"    }
                 }
-                if (-not $Quiet) { Write-Host ("  [{0,-7}] {1,-55} {2}" -f $r.CheckId, $r.CheckName, $r.Status.ToUpper()) -ForegroundColor $color }
-                if (-not $FailedOnly -or $r.Status -in "Fail", "Warning", "Manual", "Error") {
+                if (-not $Quiet) { Write-Host ("  [{0,-14}] {1,-50} {2}" -f $r.CheckId, $r.CheckName, $r.Status.ToUpper()) -ForegroundColor $color }
+                if (-not $FailedOnly -or $r.Status -in "Fail", "Warning", "Manual", "Review", "Error") {
                     $r
                 }
             }
 
-            # ── §1 Access & Identity Controls ─────────────────────────────────────
-            if (ShouldRun "1") {
-                Write-Verbose "[$instance] §1 Access & Identity"
+            # ── §AC Access Controls ───────────────────────────────────────────────
+            if (ShouldRun "AC") {
+                Write-Verbose "[$instance] §AC Access Controls"
 
-                # SOX-1.1 Windows-only auth — SQL logins bypass Active Directory provisioning controls.
+                # ITGC-AC-01 User provisioning evidence — new server principals in the past 90 days.
                 try {
-                    $authMode = Get-DbaInstanceProperty @connSplat -InstanceProperty LoginMode -WarningAction SilentlyContinue | Select-Object -First 1
-                    $winOnly  = ($authMode.Value -eq 1)
+                    $newData  = Get-NewPrincipals -ctx $connSplat
+                    $count    = $newData.Count
+                    $nameList = if ($count -gt 0) {
+                        ($newData.Principals | ForEach-Object { "$($_.name) ($($_.type_desc))" }) -join ', '
+                    } else { $null }
                     $splatCheck = @{
-                        CheckId        = "SOX-1.1"
-                        CheckName      = "Windows-Only Authentication"
+                        CheckId        = "ITGC-AC-01"
+                        CheckName      = "User Provisioning Evidence"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["1.1"]
-                        Status         = if ($winOnly) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($winOnly) { "Windows Only" } else { "Mixed Mode" }
-                        ExpectedValue  = "Windows Only (LoginMode = 1)"
-                        Remediation    = "Mixed mode allows SQL logins that exist outside AD and bypass de-provisioning. Change to Windows Authentication: EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 1  -- Restart required."
-                        Reference      = "SOX §404 — Logical Access Controls"
-                        SqlQuery       = "-- Automated via Get-DbaInstanceProperty (SMO LoginMode). T-SQL: SELECT SERVERPROPERTY('IsIntegratedSecurityOnly') AS WindowsAuthOnly;  -- 1 = compliant"
+                        Priority       = "High"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Review" }
+                        CurrentValue   = if ($count -eq 0) { "No new principals in the past 90 days" } else { "$count new principal(s): $nameList" }
+                        ExpectedValue  = "Each new principal has an approved access request on file"
+                        Remediation    = if ($count -gt 0) { "Verify that each principal listed has a corresponding approved access request. Remove any accounts that cannot be justified." } else { $null }
+                        Reference      = "SOX §404 — User Provisioning and Access Controls"
+                        SqlQuery       = $newData.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-01: $($_.Exception.Message)" }
 
-                # SOX-1.2 sa login disabled — SID 0x01 catches renamed sa accounts.
+                # ITGC-AC-03 Orphaned database users — user accounts with no corresponding login.
                 try {
-                    $saLogin12 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
-                        Select-Object -First 1
-                    $enabled = $saLogin12 -and -not $saLogin12.IsDisabled
+                    $orphanData = Get-OrphanedUsers -ctx $connSplat
+                    $count      = $orphanData.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-1.2"
+                        CheckId        = "ITGC-AC-03"
+                        CheckName      = "Orphaned Database Users"
+                        Category       = "Access Control"
+                        AssessmentType = "Automated"
+                        Priority       = "Medium"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count orphaned user(s)" }
+                        ExpectedValue  = "0 orphaned database users"
+                        Remediation    = "Repair-DbaDbOrphanUser -SqlInstance $instance  -- or DROP USER [<name>] in each affected database after verifying no active session dependency."
+                        Reference      = "SOX §404 — Access Termination"
+                        SqlQuery       = "-- Via Get-OrphanedUsers / Get-DbaDbOrphanUser. T-SQL: SELECT dp.name, dp.type_desc FROM sys.database_principals dp LEFT JOIN sys.server_principals sp ON dp.sid = sp.sid WHERE dp.type IN ('S','U','G') AND dp.sid IS NOT NULL AND sp.sid IS NULL AND dp.name NOT IN ('dbo','guest','INFORMATION_SCHEMA','sys');"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AC-03: $($_.Exception.Message)" }
+
+                # ITGC-AC-04 Privileged access inventory — sysadmin and CONTROL SERVER principals.
+                try {
+                    $sysData4  = Get-SysadminLogins -ctx $connSplat
+                    $sqlData4  = Get-SqlAuthLogins -ctx $connSplat
+                    $qCtlSvr   = "SELECT sp.name FROM sys.server_principals sp JOIN sys.server_permissions p ON sp.principal_id = p.grantee_principal_id WHERE p.type = 'CL' AND p.state IN ('G','W') AND sp.name NOT LIKE '##%';"
+                    $ctlRows   = Invoke-DbaQuery @connSplat -Query $qCtlSvr -WarningAction SilentlyContinue
+                    $ctlNames  = if ($ctlRows) { @($ctlRows | Select-Object -ExpandProperty name) } else { @() }
+
+                    $sysNames    = $sysData4.Names
+                    $allPriv     = ($sysNames + $ctlNames) | Select-Object -Unique | Sort-Object
+                    $privEntries = foreach ($n in $allPriv) {
+                        $src      = @()
+                        if ($n -in $sysNames) { $src += 'sysadmin' }
+                        if ($n -in $ctlNames) { $src += 'CONTROL SERVER' }
+                        $authType = if ($n -in $sqlData4.Names) { 'SQL auth' } else { 'Windows auth' }
+                        "$n [$authType, $($src -join '+')]"
+                    }
+                    $count = $allPriv.Count
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AC-04"
+                        CheckName      = "Privileged Access Inventory"
+                        Category       = "Access Control"
+                        AssessmentType = "Review"
+                        Priority       = "Critical"
+                        Status         = "Review"
+                        CurrentValue   = if ($count -eq 0) { "No sysadmin or CONTROL SERVER accounts found" } else { "$count account(s): $($privEntries -join '; ')" }
+                        ExpectedValue  = "All privileged accounts documented, justified, and formally approved"
+                        Remediation    = "Review each account listed. Remove any not formally approved: ALTER SERVER ROLE [sysadmin] DROP MEMBER [<account>];"
+                        Reference      = "SOX §404 — Privileged Access Controls"
+                        SqlQuery       = $qCtlSvr
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AC-04: $($_.Exception.Message)" }
+
+                # ITGC-AC-05 Sysadmin membership formal review — Fail if unapproved SQL auth accounts present.
+                try {
+                    $exceptions = @('DYNAMICS_SVC')
+                    $sysData5   = Get-SysadminLogins -ctx $connSplat
+                    $sqlData5   = Get-SqlAuthLogins -ctx $connSplat
+                    $sysNames5  = $sysData5.Names
+                    $sqlAuthSys = @($sysNames5 | Where-Object { $_ -in $sqlData5.Names })
+                    $winAuthSys = @($sysNames5 | Where-Object { $_ -notin $sqlData5.Names })
+                    $excepted   = @($sqlAuthSys | Where-Object { $_ -in $exceptions })
+                    $violations = @($sqlAuthSys | Where-Object { $_ -notin $exceptions })
+                    $status     = if ($violations.Count -gt 0) { "Fail" } else { "Review" }
+                    $finding    = if ($violations.Count -gt 0) {
+                        "Unapproved SQL auth sysadmin(s): $($violations -join ', ')"
+                    } else {
+                        "All SQL auth sysadmins are in the approved exceptions list"
+                    }
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AC-05"
+                        CheckName      = "Sysadmin Membership Review"
+                        Category       = "Access Control"
+                        AssessmentType = "Review"
+                        Priority       = "Critical"
+                        Status         = $status
+                        CurrentValue   = "Total: $($sysNames5.Count) | Windows auth: $($winAuthSys.Count) | SQL auth: $($sqlAuthSys.Count) (excepted: $($excepted.Count), violations: $($violations.Count)) — $finding"
+                        ExpectedValue  = "All SQL auth sysadmin logins are in the approved exceptions list; all members recertified at least annually"
+                        Remediation    = if ($status -eq "Fail") {
+                            "Remove unapproved SQL auth sysadmin account(s): $($violations -join ', '). To approve a legitimate SQL auth sysadmin, add its name to the exceptions list in ITGC-AC-05."
+                        } else {
+                            "Confirm continued business need for all $($sysNames5.Count) sysadmin member(s) and document the recertification."
+                        }
+                        Reference      = "SOX §404 — Privileged Access Review"
+                        SqlQuery       = "-- Via Get-SysadminLogins + Get-SqlAuthLogins. T-SQL: SELECT DISTINCT name, type_desc FROM sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT LIKE '##%';"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AC-05: $($_.Exception.Message)" }
+
+                # ITGC-AC-06 Periodic access recertification — orphans = Fail, otherwise Review.
+                try {
+                    $userData6   = Get-DatabaseUsers -ctx $connSplat
+                    $orphanData6 = Get-OrphanedUsers -ctx $connSplat
+                    $ownerData6  = Get-DbOwnerMembers -ctx $connSplat
+                    $allDbUsers  = $userData6.Users
+                    $orphans6    = $orphanData6.Orphans
+                    $dbOwners    = $ownerData6.Members
+
+                    $userCount   = $userData6.Count
+                    $ownerCount  = $ownerData6.Count
+                    $orphanCount = $orphanData6.Count
+
+                    $status6 = if ($orphanCount -gt 0) { "Fail" } else { "Review" }
+                    $finding6 = if ($orphanCount -gt 0) {
+                        "Orphaned users (no matching login): $((@($orphans6) | ForEach-Object { "$($_.UserName) in $($_.Database)" }) -join ', ')"
+                    } else {
+                        "$ownerCount db_owner member(s) require recertification evidence"
+                    }
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AC-06"
+                        CheckName      = "Periodic Access Recertification"
+                        Category       = "Access Control"
+                        AssessmentType = "Review"
+                        Priority       = "High"
+                        Status         = $status6
+                        CurrentValue   = "Total DB users: $userCount | db_owner members: $ownerCount | Orphaned: $orphanCount — $finding6"
+                        ExpectedValue  = "All database user accounts recertified by a data owner at least annually; 0 orphaned users"
+                        Remediation    = "Present the user list to database owners for formal recertification. $(if ($orphanCount -gt 0) { "Remove orphaned users: Repair-DbaDbOrphanUser -SqlInstance $instance" })"
+                        Reference      = "SOX §404 — Periodic Access Review"
+                        SqlQuery       = "-- Via Get-DatabaseUsers, Get-DbOwnerMembers, Get-OrphanedUsers."
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AC-06: $($_.Exception.Message)" }
+
+                # ITGC-AC-08a sa login disabled — SID 0x01 catches renamed sa accounts.
+                try {
+                    $saData  = Get-SaLogin -ctx $connSplat
+                    $saLogin = $saData.Login
+                    $enabled = $saLogin -and -not $saLogin.IsDisabled
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AC-08a"
                         CheckName      = "sa Login Disabled"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["1.2"]
+                        Priority       = "High"
                         Status         = if (-not $enabled) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($enabled) { "Enabled (name: $($saLogin12.Name))" } else { "Disabled" }
+                        CurrentValue   = if ($enabled) { "Enabled (name: $($saLogin.Name))" } else { "Disabled" }
                         ExpectedValue  = "Disabled"
                         Remediation    = "Disable the sa account: USE [master]; DECLARE @n NVARCHAR(256) = SUSER_NAME(0x01); EXEC ('ALTER LOGIN [' + @n + '] DISABLE');"
                         Reference      = "SOX §404 — Logical Access Controls"
-                        SqlQuery       = "-- Automated via Get-DbaLogin (SID 0x01 lookup). T-SQL: SELECT name, is_disabled FROM sys.server_principals WHERE sid = 0x01 AND is_disabled = 0;  -- No rows = compliant"
+                        SqlQuery       = "-- Via Get-SaLogin (SID 0x01). T-SQL: SELECT name, is_disabled FROM sys.server_principals WHERE sid = 0x01 AND is_disabled = 0;  -- No rows = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-08a: $($_.Exception.Message)" }
 
-                # SOX-1.3 sa login renamed — well-known account name is a direct attack target.
+                # ITGC-AC-08b sa login renamed — well-known name is a direct attack target.
                 try {
-                    $saLogin13 = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Sid.Length -eq 1 -and $_.Sid[0] -eq 1 } |
-                        Select-Object -First 1
-                    if ($saLogin13) {
+                    $saData  = Get-SaLogin -ctx $connSplat
+                    $saLogin = $saData.Login
+                    if ($saLogin) {
                         $splatCheck = @{
-                            CheckId        = "SOX-1.3"
+                            CheckId        = "ITGC-AC-08b"
                             CheckName      = "sa Login Renamed"
                             Category       = "Access Control"
                             AssessmentType = "Automated"
-                            Priority       = $soxPriority["1.3"]
-                            Status         = if ($saLogin13.Name -ne "sa") { "Pass" } else { "Fail" }
-                            CurrentValue   = $saLogin13.Name
+                            Priority       = "Medium"
+                            Status         = if ($saLogin.Name -ne "sa") { "Pass" } else { "Fail" }
+                            CurrentValue   = $saLogin.Name
                             ExpectedValue  = "Any name other than 'sa'"
                             Remediation    = "ALTER LOGIN [sa] WITH NAME = [sa_disabled];"
                             Reference      = "SOX §404 — Logical Access Controls"
-                            SqlQuery       = "-- Automated via Get-DbaLogin (SID 0x01 lookup). T-SQL: SELECT name FROM sys.server_principals WHERE sid = 0x01;  -- Name should not be 'sa'"
+                            SqlQuery       = "-- Via Get-SaLogin (SID 0x01). T-SQL: SELECT name FROM sys.server_principals WHERE sid = 0x01;  -- Name should not be 'sa'"
                         }
                         & $emit (New-DakCheckResult @sharedParams @splatCheck)
                     }
-                } catch { Write-Warning "[$instance] SOX-1.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-08b: $($_.Exception.Message)" }
 
-                # SOX-1.4 No BUILTIN groups — membership outside SQL Server control violates SOX provisioning.
+                # ITGC-AC-08c No BUILTIN groups — local admin membership outside SQL Server provisioning.
                 try {
-                    $builtins = Get-DbaLogin @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Name -like "BUILTIN\*" }
-                    $count = if ($builtins) { @($builtins).Count } else { 0 }
+                    $builtinData = Get-BuiltinGroups -ctx $connSplat
+                    $count       = $builtinData.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-1.4"
+                        CheckId        = "ITGC-AC-08c"
                         CheckName      = "BUILTIN Groups Absent"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["1.4"]
+                        Priority       = "High"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { ($builtins.Name -join ", ") }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { ($builtinData.Names -join ", ") }
                         ExpectedValue  = "None"
                         Remediation    = "BUILTIN groups grant SQL access to all local admins outside SQL Server's provisioning process. Confirm domain group equivalents exist, then: USE [master]; DROP LOGIN [BUILTIN\Administrators];"
                         Reference      = "SOX §404 — Logical Access Controls"
-                        SqlQuery       = "-- Automated via Get-DbaLogin. T-SQL: SELECT name FROM sys.server_principals WHERE name LIKE 'BUILTIN%';  -- No rows = compliant"
+                        SqlQuery       = "-- Via Get-BuiltinGroups / Get-DbaLogin. T-SQL: SELECT name FROM sys.server_principals WHERE name LIKE 'BUILTIN%';  -- No rows = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-08c: $($_.Exception.Message)" }
 
-                # SOX-1.5 Guest CONNECT revoked — bypasses formal user provisioning.
+                # ITGC-AC-08d Guest CONNECT revoked — bypasses formal user provisioning.
                 try {
-                    $guestDbs = Get-DbaDbUser @connSplat -ExcludeDatabase master, msdb, tempdb -User "guest" -WarningAction SilentlyContinue |
-                        Where-Object { $_.HasDbAccess -eq $true }
-                    $count = if ($guestDbs) { @($guestDbs).Count } else { 0 }
+                    $guestData = Get-GuestAccess -ctx $connSplat
+                    $count     = $guestData.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-1.5"
+                        CheckId        = "ITGC-AC-08d"
                         CheckName      = "Guest Access Revoked"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["1.5"]
+                        Priority       = "Medium"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "Revoked in all user databases" } else { "Active in: $($guestDbs.Database -join ', ')" }
+                        CurrentValue   = if ($count -eq 0) { "Revoked in all user databases" } else { "Active in: $($guestData.DatabaseNames -join ', ')" }
                         ExpectedValue  = "CONNECT revoked in all user databases"
                         Remediation    = "USE [<database>]; REVOKE CONNECT FROM [guest];"
                         Reference      = "SOX §404 — Logical Access Controls"
-                        SqlQuery       = "-- Automated via Get-DbaDbUser. T-SQL per user DB: SELECT permission_name, state_desc FROM sys.database_permissions WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID('guest') AND permission_name = 'CONNECT';"
+                        SqlQuery       = "-- Via Get-GuestAccess / Get-DbaDbUser. T-SQL per user DB: SELECT permission_name, state_desc FROM sys.database_permissions WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID('guest') AND permission_name = 'CONNECT';"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-08d: $($_.Exception.Message)" }
 
-                # SOX-1.6 SQL logins enforce password policy — weak passwords undermine access controls.
+                # ITGC-AC-09 Service account inventory — Fail if unclassified SQL auth logins exist.
                 try {
-                    $noPolicy = Get-DbaLogin @connSplat -Type SQL -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.PasswordPolicyEnforced }
-                    $count = if ($noPolicy) { @($noPolicy).Count } else { 0 }
+                    $svcPattern = '^(svc[_\-]|service[_\-]|app[_\-]|etl[_\-]|batch[_\-]|report|ssrs|ssis|agent|sa$)'
+                    $sqlData9   = Get-SqlAuthLogins -ctx $connSplat
+                    $sqlLogins9 = $sqlData9.Logins
+                    $totalCount9   = $sqlData9.Count
+                    $matched9      = @($sqlLogins9 | Where-Object { $_.Name -match $svcPattern })
+                    $unclassified9 = @($sqlLogins9 | Where-Object { $_.Name -notmatch $svcPattern })
+                    $status9       = if ($unclassified9.Count -gt 0) { "Fail" } else { "Review" }
+                    $finding9      = if ($unclassified9.Count -gt 0) {
+                        "Unclassified SQL auth login(s): $($unclassified9.Name -join ', ')"
+                    } else {
+                        "All $totalCount9 SQL auth login(s) match known service account naming patterns"
+                    }
                     $splatCheck = @{
-                        CheckId        = "SOX-1.6"
+                        CheckId        = "ITGC-AC-09"
+                        CheckName      = "Service Account Inventory"
+                        Category       = "Access Control"
+                        AssessmentType = "Review"
+                        Priority       = "Medium"
+                        Status         = $status9
+                        CurrentValue   = "Total SQL auth: $totalCount9 | Pattern-matched: $($matched9.Count) | Unclassified: $($unclassified9.Count) — $finding9"
+                        ExpectedValue  = "All SQL auth logins documented as approved service accounts; no shared or generic accounts"
+                        Remediation    = if ($status9 -eq "Fail") {
+                            "Investigate unclassified SQL auth login(s): $($unclassified9.Name -join ', '). Each SQL login must have a documented owner and business justification. Disable or remove accounts that cannot be justified."
+                        } else {
+                            "Verify that each matched account has a named owner and formal service account registration on file."
+                        }
+                        Reference      = "SOX §404 — Service Account Management"
+                        SqlQuery       = "-- Via Get-SqlAuthLogins / Get-DbaLogin -Type SQL. T-SQL: SELECT name, is_disabled, create_date FROM sys.sql_logins WHERE name NOT LIKE '##%' ORDER BY name;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AC-09: $($_.Exception.Message)" }
+
+                # ITGC-AC-10a SQL logins enforce password policy.
+                try {
+                    $sqlData10a = Get-SqlAuthLogins -ctx $connSplat
+                    $noPolicy   = @($sqlData10a.Logins | Where-Object { -not $_.PasswordPolicyEnforced })
+                    $count      = $noPolicy.Count
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AC-10a"
                         CheckName      = "SQL Login Password Policy Enforced"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["1.6"]
+                        Priority       = "High"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All compliant" } else { "$count logins without CHECK_POLICY" }
                         ExpectedValue  = "CHECK_POLICY = ON for all SQL logins"
                         Remediation    = "ALTER LOGIN [<name>] WITH CHECK_POLICY = ON;  -- Enumerate: SELECT name FROM sys.sql_logins WHERE is_policy_checked = 0"
                         Reference      = "SOX §404 — Logical Access Controls"
-                        SqlQuery       = "-- Automated via Get-DbaLogin (PasswordPolicyEnforced). T-SQL: SELECT name FROM sys.sql_logins WHERE is_policy_checked = 0;  -- No rows = compliant"
+                        SqlQuery       = "-- Via Get-SqlAuthLogins / Get-DbaLogin. T-SQL: SELECT name FROM sys.sql_logins WHERE is_policy_checked = 0;  -- No rows = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.6: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-10a: $($_.Exception.Message)" }
 
-                # SOX-1.7 Privileged SQL logins enforce password expiration.
-                # No dbatools equivalent for the sysadmin+CONTROL SERVER UNION — using Invoke-DbaQuery.
+                # ITGC-AC-10b Privileged SQL logins enforce password expiration.
                 try {
-                    $expQuery = @"
+                    $qAC10b = @"
 SELECT l.name, 'sysadmin' AS Reason
 FROM sys.sql_logins AS l
 WHERE IS_SRVROLEMEMBER('sysadmin', l.name) = 1
@@ -294,335 +422,220 @@ JOIN sys.server_permissions p ON l.principal_id = p.grantee_principal_id
 WHERE p.type = 'CL' AND p.state IN ('G','W')
   AND l.is_expiration_checked = 0 AND l.is_disabled = 0;
 "@
-                    $expRows = Invoke-DbaQuery @connSplat -Query $expQuery -WarningAction SilentlyContinue
+                    $expRows = Invoke-DbaQuery @connSplat -Query $qAC10b -WarningAction SilentlyContinue
                     $count   = if ($expRows) { @($expRows).Count } else { 0 }
                     $splatCheck = @{
-                        CheckId        = "SOX-1.7"
+                        CheckId        = "ITGC-AC-10b"
                         CheckName      = "Privileged Login Password Expiration"
                         Category       = "Access Control"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["1.7"]
+                        Priority       = "High"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All compliant" } else { "$count privileged logins without CHECK_EXPIRATION" }
                         ExpectedValue  = "CHECK_EXPIRATION = ON for all privileged SQL logins"
                         Remediation    = "ALTER LOGIN [<name>] WITH CHECK_EXPIRATION = ON;"
                         Reference      = "SOX §404 — Logical Access Controls"
-                        SqlQuery       = $expQuery
+                        SqlQuery       = $qAC10b
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.7: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-10b: $($_.Exception.Message)" }
 
-                # SOX-1.8 Sysadmin membership — Manual: auditors must review and formally certify the list.
+                # ITGC-AC-11 Windows-only auth — SQL logins bypass Active Directory provisioning.
                 try {
-                    $builtinFilter = @('NT SERVICE\SQLWriter','NT SERVICE\Winmgmt','NT SERVICE\MSSQLSERVER','NT SERVICE\SQLSERVERAGENT')
-                    $sysadmins = Get-DbaServerRoleMember @connSplat -ServerRole sysadmin -WarningAction SilentlyContinue |
-                        Where-Object { $_.Name -notin $builtinFilter -and $_.Name -notlike '##*' }
-                    $count = if ($sysadmins) { @($sysadmins).Count } else { 0 }
+                    $authData = Get-AuthMode -ctx $connSplat
+                    $winOnly  = ($authData.LoginMode -eq 1)
                     $splatCheck = @{
-                        CheckId        = "SOX-1.8"
-                        CheckName      = "Sysadmin Membership Review"
+                        CheckId        = "ITGC-AC-11"
+                        CheckName      = "Windows-Only Authentication"
                         Category       = "Access Control"
-                        AssessmentType = "Manual"
-                        Priority       = $soxPriority["1.8"]
-                        Status         = "Manual"
-                        CurrentValue   = "$count non-system accounts with sysadmin"
-                        ExpectedValue  = "Each account documented, justified, and recertified at least annually"
-                        Remediation    = "Review all members: SELECT name, type_desc FROM sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT LIKE '##%'. Remove any not formally approved: ALTER SERVER ROLE sysadmin DROP MEMBER [<account>];"
-                        Reference      = "SOX §404 — Privileged Access Review"
-                        SqlQuery       = "-- Automated via Get-DbaServerRoleMember. T-SQL: SELECT DISTINCT name, type_desc FROM master.sys.server_principals WHERE IS_SRVROLEMEMBER('sysadmin', name) = 1 AND name NOT LIKE '##%';"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($winOnly) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($winOnly) { "Windows Only" } else { "Mixed Mode" }
+                        ExpectedValue  = "Windows Only (LoginMode = 1)"
+                        Remediation    = "Mixed mode allows SQL logins that exist outside AD and bypass de-provisioning. Change to Windows Authentication: EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'LoginMode', REG_DWORD, 1  -- Restart required."
+                        Reference      = "SOX §404 — Logical Access Controls"
+                        SqlQuery       = "-- Via Get-AuthMode / Get-DbaInstanceProperty. T-SQL: SELECT SERVERPROPERTY('IsIntegratedSecurityOnly') AS WindowsAuthOnly;  -- 1 = compliant"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-1.8: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-AC-11: $($_.Exception.Message)" }
             }
 
-            # ── §2 Audit & Logging ────────────────────────────────────────────────
-            if (ShouldRun "2") {
-                Write-Verbose "[$instance] §2 Audit & Logging"
+            # ── §CM Change Management ─────────────────────────────────────────────
+            if (ShouldRun "CM") {
+                Write-Verbose "[$instance] §CM Change Management"
 
-                # SOX-2.1 SQL Server Audit — required action groups for SOX detective controls.
+                # ITGC-CM-05 Agent jobs have owners — ownerless jobs have no accountability chain.
                 try {
-                    $auditQuery = @"
-SELECT SAD.audit_action_name, S.is_state_enabled AS AuditEnabled, SA.is_state_enabled AS SpecEnabled
-FROM sys.server_audit_specification_details AS SAD
-JOIN sys.server_audit_specifications AS SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits AS S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('LGFL','LGSD','ADDP','ADSP','CNAU');
-"@
-                    $auditRows   = Invoke-DbaQuery @connSplat -Query $auditQuery -WarningAction SilentlyContinue
-                    $required    = @(
-                        "FAILED_LOGIN_GROUP",
-                        "SUCCESSFUL_LOGIN_GROUP",
-                        "DATABASE_ROLE_MEMBER_CHANGE_GROUP",
-                        "SERVER_ROLE_MEMBER_CHANGE_GROUP",
-                        "AUDIT_CHANGE_GROUP"
-                    )
-                    $foundGroups = if ($auditRows) {
-                        @($auditRows | Where-Object { $_.AuditEnabled -and $_.SpecEnabled } |
-                            Select-Object -ExpandProperty audit_action_name -Unique)
-                    } else { @() }
-                    $missing   = $required | Where-Object { $_ -notin $foundGroups }
-                    $compliant = $missing.Count -eq 0
+                    $jobData = Get-AgentJobOwners -ctx $connSplat
+                    $count   = $jobData.OwnerlessCount
                     $splatCheck = @{
-                        CheckId        = "SOX-2.1"
-                        CheckName      = "SQL Server Audit — SOX Action Groups"
-                        Category       = "Audit"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["2.1"]
-                        Status         = if ($compliant) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($foundGroups.Count -eq 0) { "No enabled audit" } else { "$($foundGroups.Count) of $($required.Count) required groups captured" }
-                        ExpectedValue  = "All 5 SOX action groups enabled in an active audit and specification"
-                        Remediation    = if ($compliant) { $null } else { "Missing groups: $($missing -join ', '). Create a SERVER AUDIT targeted to a protected file path and a SERVER AUDIT SPECIFICATION covering these action groups. See: CREATE SERVER AUDIT / CREATE SERVER AUDIT SPECIFICATION." }
-                        Reference      = "SOX §404 — Audit Trail"
-                        SqlQuery       = $auditQuery
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-2.1: $($_.Exception.Message)" }
-
-                # SOX-2.2 Login audit level — failure events are the minimum for SOX detective controls.
-                try {
-                    $auditLevel = Invoke-DbaQuery @connSplat -Query "EXEC xp_loginconfig 'audit level';" -WarningAction SilentlyContinue
-                    $rawLevel   = if ($auditLevel -and $auditLevel[0]) { $auditLevel[0].config_value } else { $null }
-                    $level      = if ($null -ne $rawLevel) { $rawLevel.Trim() } else { "none" }
-                    $splatCheck = @{
-                        CheckId        = "SOX-2.2"
-                        CheckName      = "Login Audit Level"
-                        Category       = "Audit"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["2.2"]
-                        Status         = if ($level -in "all", "failure") { "Pass" } else { "Fail" }
-                        CurrentValue   = $level
-                        ExpectedValue  = "failure or all"
-                        Remediation    = "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'AuditLevel', REG_DWORD, 2  -- 2 = failure, 3 = all. SQL Server service restart required."
-                        Reference      = "SOX §404 — Audit Trail"
-                        SqlQuery       = "EXEC xp_loginconfig 'audit level';  -- config_value should be 'failure' or 'all'"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-2.2: $($_.Exception.Message)" }
-
-                # SOX-2.3 Error log retention >= 12 — SOX audit windows commonly require 12 months.
-                try {
-                    $logCfg  = Get-DbaErrorLogConfig @connSplat -WarningAction SilentlyContinue | Select-Object -First 1
-                    $rawCount = if ($logCfg) { $logCfg.LogCount } else { -1 }
-                    $count    = if ($rawCount -lt 0) { 6 } else { $rawCount }
-                    $display  = if ($rawCount -lt 0) { "default (6) — registry key absent" } else { $count.ToString() }
-                    $splatCheck = @{
-                        CheckId        = "SOX-2.3"
-                        CheckName      = "Error Log Retention"
-                        Category       = "Audit"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["2.3"]
-                        Status         = if ($count -ge 12) { "Pass" } else { "Fail" }
-                        CurrentValue   = $display
-                        ExpectedValue  = "12 or more"
-                        Remediation    = "Set-DbaErrorLogConfig -SqlInstance $instance -LogCount 12"
-                        Reference      = "SOX §404 — Audit Trail Retention"
-                        SqlQuery       = "-- Automated via Get-DbaErrorLogConfig. T-SQL: DECLARE @n INT; EXEC master.sys.xp_instance_regread N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'NumErrorLogs', @n OUTPUT; SELECT ISNULL(@n, 6) AS NumberOfLogFiles;"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-2.3: $($_.Exception.Message)" }
-
-                # SOX-2.4 Default trace enabled — baseline change and security event evidence.
-                try {
-                    $defTrace = Get-DbaSpConfigure @connSplat -Name "DefaultTraceEnabled" -WarningAction SilentlyContinue | Select-Object -First 1
-                    if ($defTrace) {
-                        $splatCheck = @{
-                            CheckId        = "SOX-2.4"
-                            CheckName      = "Default Trace Enabled"
-                            Category       = "Audit"
-                            AssessmentType = "Automated"
-                            Priority       = $soxPriority["2.4"]
-                            Status         = if ($defTrace.RunningValue -eq 1) { "Pass" } else { "Fail" }
-                            CurrentValue   = $defTrace.RunningValue.ToString()
-                            ExpectedValue  = "1"
-                            Remediation    = "EXEC sp_configure 'default trace enabled', 1; RECONFIGURE;"
-                            Reference      = "SOX §404 — Audit Trail"
-                            SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name = 'default trace enabled';"
-                        }
-                        & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                    }
-                } catch { Write-Warning "[$instance] SOX-2.4: $($_.Exception.Message)" }
-
-                # SOX-2.5 Audit captures server and database role membership changes.
-                try {
-                    $roleAuditQuery = @"
-SELECT COUNT(*) AS Found
-FROM sys.server_audit_specification_details SAD
-JOIN sys.server_audit_specifications SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('ADSP','ADDP')
-  AND S.is_state_enabled = 1 AND SA.is_state_enabled = 1;
-"@
-                    $roleAudit = Invoke-DbaQuery @connSplat -Query $roleAuditQuery -WarningAction SilentlyContinue
-                    $found     = $roleAudit -and $roleAudit.Found -gt 0
-                    $splatCheck = @{
-                        CheckId        = "SOX-2.5"
-                        CheckName      = "Audit — Role Membership Changes"
-                        Category       = "Audit"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["2.5"]
-                        Status         = if ($found) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($found) { "Configured" } else { "Not configured" }
-                        ExpectedValue  = "SERVER_ROLE_MEMBER_CHANGE_GROUP and DATABASE_ROLE_MEMBER_CHANGE_GROUP captured"
-                        Remediation    = "Add SERVER_ROLE_MEMBER_CHANGE_GROUP and DATABASE_ROLE_MEMBER_CHANGE_GROUP to your active server audit specification."
-                        Reference      = "SOX §404 — Change Accountability"
-                        SqlQuery       = $roleAuditQuery
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-2.5: $($_.Exception.Message)" }
-
-                # SOX-2.6 Audit captures DDL and schema changes to financial database objects.
-                try {
-                    $ddlAuditQuery = @"
-SELECT COUNT(*) AS Found
-FROM sys.server_audit_specification_details SAD
-JOIN sys.server_audit_specifications SA ON SAD.server_specification_id = SA.server_specification_id
-JOIN sys.server_audits S ON SA.audit_guid = S.audit_guid
-WHERE SAD.audit_action_id IN ('DAUC','CDBR','SCHM')
-  AND S.is_state_enabled = 1 AND SA.is_state_enabled = 1;
-"@
-                    $ddlAudit = Invoke-DbaQuery @connSplat -Query $ddlAuditQuery -WarningAction SilentlyContinue
-                    $found    = $ddlAudit -and $ddlAudit.Found -gt 0
-                    $splatCheck = @{
-                        CheckId        = "SOX-2.6"
-                        CheckName      = "Audit — DDL / Schema Changes"
-                        Category       = "Audit"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["2.6"]
-                        Status         = if ($found) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($found) { "Configured" } else { "Not configured" }
-                        ExpectedValue  = "SCHEMA_OBJECT_CHANGE_GROUP or DATABASE_CHANGE_GROUP captured"
-                        Remediation    = "Add SCHEMA_OBJECT_CHANGE_GROUP to your active server audit specification. For database-level coverage: CREATE DATABASE AUDIT SPECIFICATION covering SCHEMA_OBJECT_CHANGE_GROUP on each financial database."
-                        Reference      = "SOX §404 — Change Management"
-                        SqlQuery       = $ddlAuditQuery
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-2.6: $($_.Exception.Message)" }
-            }
-
-            # ── §3 Change Management ──────────────────────────────────────────────
-            if (ShouldRun "3") {
-                Write-Verbose "[$instance] §3 Change Management"
-
-                # SOX-3.1 Agent jobs have owners — ownerless jobs have no accountability chain.
-                try {
-                    $ownerlessJobs = Get-DbaAgentJob @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { [string]::IsNullOrWhiteSpace($_.OwnerLoginName) }
-                    $count = if ($ownerlessJobs) { @($ownerlessJobs).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-3.1"
+                        CheckId        = "ITGC-CM-05"
                         CheckName      = "Agent Job Ownership"
                         Category       = "Change Management"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["3.1"]
+                        Priority       = "Medium"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All jobs have owners" } else { "$count jobs without an owner" }
                         ExpectedValue  = "All jobs have a named owner login"
                         Remediation    = "EXEC msdb.dbo.sp_update_job @job_name = N'<jobname>', @owner_login_name = N'<login>';"
                         Reference      = "SOX §404 — Change Accountability"
-                        SqlQuery       = "-- Automated via Get-DbaAgentJob. T-SQL: SELECT name, owner_sid FROM msdb.dbo.sysjobs WHERE owner_sid IS NULL;"
+                        SqlQuery       = "-- Via Get-AgentJobOwners / Get-DbaAgentJob. T-SQL: SELECT name, owner_sid FROM msdb.dbo.sysjobs WHERE owner_sid IS NULL;"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-3.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-CM-05: $($_.Exception.Message)" }
+            }
 
-                # SOX-3.2 SQL Agent operator configured — no operator means no alert delivery path.
+            # ── §OP Computer Operations ───────────────────────────────────────────
+            if (ShouldRun "OP") {
+                Write-Verbose "[$instance] §OP Computer Operations"
+
+                # ITGC-OP-01a SQL Agent operator configured — no operator means no alert delivery path.
                 try {
-                    $operators = Get-DbaAgentOperator @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.Enabled -eq $true -and -not [string]::IsNullOrWhiteSpace($_.EmailAddress) }
-                    $count = if ($operators) { @($operators).Count } else { 0 }
+                    $opData = Get-AgentOperators -ctx $connSplat
+                    $count  = $opData.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-3.2"
+                        CheckId        = "ITGC-OP-01a"
                         CheckName      = "SQL Agent Operator Configured"
-                        Category       = "Change Management"
+                        Category       = "Computer Operations"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["3.2"]
+                        Priority       = "Medium"
                         Status         = if ($count -gt 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$count enabled operator(s) with email address"
                         ExpectedValue  = "At least 1 enabled operator with an email address"
                         Remediation    = "EXEC msdb.dbo.sp_add_operator @name = N'DBA Team', @enabled = 1, @email_address = N'dba@company.com';"
                         Reference      = "SOX §404 — Operational Monitoring"
-                        SqlQuery       = "-- Automated via Get-DbaAgentOperator. T-SQL: SELECT name, enabled, email_address FROM msdb.dbo.sysoperators WHERE enabled = 1 AND email_address IS NOT NULL AND email_address <> '';"
+                        SqlQuery       = "-- Via Get-AgentOperators / Get-DbaAgentOperator. T-SQL: SELECT name, enabled, email_address FROM msdb.dbo.sysoperators WHERE enabled = 1 AND email_address IS NOT NULL AND email_address <> '';"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-3.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-OP-01a: $($_.Exception.Message)" }
 
-                # SOX-3.3 Alerts for severity 19–25 — data-threatening SQL Server errors.
+                # ITGC-OP-01b Alerts for severity 19–25 — data-threatening SQL Server errors.
                 try {
-                    $sevAlerts = Get-DbaAgentAlert @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.IsEnabled -and $_.Severity -ge 19 -and $_.Severity -le 25 }
+                    $alertData  = Get-SqlAlerts -ctx $connSplat
                     $missingSev = 19..25 | Where-Object {
                         $sev = $_
-                        -not ($sevAlerts | Where-Object { $_.Severity -eq $sev })
+                        -not ($alertData.SevAlerts | Where-Object { $_.Severity -eq $sev })
                     }
                     $splatCheck = @{
-                        CheckId        = "SOX-3.3"
+                        CheckId        = "ITGC-OP-01b"
                         CheckName      = "Alerts — Severity 19-25"
-                        Category       = "Change Management"
+                        Category       = "Computer Operations"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["3.3"]
+                        Priority       = "High"
                         Status         = if ($missingSev.Count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($missingSev.Count -eq 0) { "All severity levels covered" } else { "Missing alerts for severity: $($missingSev -join ', ')" }
                         ExpectedValue  = "Enabled alert for each severity level 19–25"
-                        Remediation    = "EXEC msdb.dbo.sp_add_alert @name = N'Severity 019', @message_id = 0, @severity = 19, @enabled = 1, @notification_message = N'Severity 19 error.';  -- Repeat for each missing severity."
+                        Remediation    = "EXEC msdb.dbo.sp_add_alert @name = N'Severity 019', @message_id = 0, @severity = 19, @enabled = 1;  -- Repeat for each missing severity."
                         Reference      = "SOX §404 — Operational Monitoring"
-                        SqlQuery       = "-- Automated via Get-DbaAgentAlert. T-SQL: SELECT severity, name, enabled FROM msdb.dbo.sysalerts WHERE severity BETWEEN 19 AND 25 AND enabled = 1 ORDER BY severity;"
+                        SqlQuery       = "-- Via Get-SqlAlerts / Get-DbaAgentAlert. T-SQL: SELECT severity, name, enabled FROM msdb.dbo.sysalerts WHERE severity BETWEEN 19 AND 25 AND enabled = 1 ORDER BY severity;"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-3.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-OP-01b: $($_.Exception.Message)" }
 
-                # SOX-3.4 Alerts for errors 823, 824, 825 — I/O errors indicating potential data corruption.
+                # ITGC-OP-01c Database Mail configured — delivery path for operational alerts.
                 try {
-                    $ioAlerts = Get-DbaAgentAlert @connSplat -WarningAction SilentlyContinue |
-                        Where-Object { $_.IsEnabled -and $_.MessageId -in 823, 824, 825 }
-                    $missingIo = @(823, 824, 825) | Where-Object {
-                        $mid = $_
-                        -not ($ioAlerts | Where-Object { $_.MessageId -eq $mid })
-                    }
+                    $mailData = Get-DatabaseMail -ctx $connSplat
+                    $count    = $mailData.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-3.4"
-                        CheckName      = "Alerts — I/O Errors 823/824/825"
-                        Category       = "Change Management"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["3.4"]
-                        Status         = if ($missingIo.Count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($missingIo.Count -eq 0) { "All three I/O error alerts configured" } else { "Missing alert for error(s): $($missingIo -join ', ')" }
-                        ExpectedValue  = "Enabled alert for error numbers 823, 824, and 825"
-                        Remediation    = "EXEC msdb.dbo.sp_add_alert @name = N'Error 823', @message_id = 823, @severity = 0, @enabled = 1;  -- Repeat for 824 and 825. Assign to an operator."
-                        Reference      = "SOX §404 — Data Integrity Monitoring"
-                        SqlQuery       = "-- Automated via Get-DbaAgentAlert. T-SQL: SELECT message_id, name, enabled FROM msdb.dbo.sysalerts WHERE message_id IN (823,824,825) AND enabled = 1;"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-3.4: $($_.Exception.Message)" }
-
-                # SOX-3.5 Database Mail configured — delivery path for operational alerts.
-                try {
-                    $mailProfiles = Get-DbaDbMailProfile @connSplat -WarningAction SilentlyContinue
-                    $count = if ($mailProfiles) { @($mailProfiles).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-3.5"
+                        CheckId        = "ITGC-OP-01c"
                         CheckName      = "Database Mail Configured"
-                        Category       = "Change Management"
+                        Category       = "Computer Operations"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["3.5"]
+                        Priority       = "Low"
                         Status         = if ($count -gt 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$count mail profile(s) configured"
                         ExpectedValue  = "At least 1 Database Mail profile"
-                        Remediation    = "Configure Database Mail in SSMS > Management > Database Mail > Configure Database Mail wizard. Verify: EXEC msdb.dbo.sysmail_help_profile_sp;"
+                        Remediation    = "Configure Database Mail in SSMS > Management > Database Mail. Verify: EXEC msdb.dbo.sysmail_help_profile_sp;"
                         Reference      = "SOX §404 — Operational Monitoring"
-                        SqlQuery       = "-- Automated via Get-DbaDbMailProfile. T-SQL: SELECT name, description FROM msdb.dbo.sysmail_profile;"
+                        SqlQuery       = "-- Via Get-DatabaseMail / Get-DbaDbMailProfile. T-SQL: SELECT name, description FROM msdb.dbo.sysmail_profile;"
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-3.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-OP-01c: $($_.Exception.Message)" }
+
+                # ITGC-OP-02 Alerts for I/O errors 823, 824, 825 — potential silent data corruption.
+                try {
+                    $alertData  = Get-SqlAlerts -ctx $connSplat
+                    $missingIo  = @(823, 824, 825) | Where-Object {
+                        $mid = $_
+                        -not ($alertData.IoAlerts | Where-Object { $_.MessageId -eq $mid })
+                    }
+                    $splatCheck = @{
+                        CheckId        = "ITGC-OP-02"
+                        CheckName      = "Alerts — I/O Errors 823/824/825"
+                        Category       = "Computer Operations"
+                        AssessmentType = "Automated"
+                        Priority       = "Medium"
+                        Status         = if ($missingIo.Count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($missingIo.Count -eq 0) { "All three I/O error alerts configured" } else { "Missing alert for error(s): $($missingIo -join ', ')" }
+                        ExpectedValue  = "Enabled alert for error numbers 823, 824, and 825"
+                        Remediation    = "EXEC msdb.dbo.sp_add_alert @name = N'Error 823', @message_id = 823, @severity = 0, @enabled = 1;  -- Repeat for 824 and 825."
+                        Reference      = "SOX §404 — Data Integrity Monitoring"
+                        SqlQuery       = "-- Via Get-SqlAlerts / Get-DbaAgentAlert. T-SQL: SELECT message_id, name, enabled FROM msdb.dbo.sysalerts WHERE message_id IN (823,824,825) AND enabled = 1;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-OP-02: $($_.Exception.Message)" }
+
+                # ITGC-OP-04 Capacity management — Fail if max server memory is at the SQL Server default.
+                try {
+                    $memData   = Get-MaxMemory -ctx $connSplat
+                    $maxMemCfg = $memData.Config
+                    $qOP04     = "SELECT physical_memory_in_use_kb / 1024 AS MemoryInUseMB FROM sys.dm_os_process_memory;"
+                    $memInfo   = Invoke-DbaQuery @connSplat -Query $qOP04 -WarningAction SilentlyContinue | Select-Object -First 1
+
+                    $maxValue    = if ($maxMemCfg) { $maxMemCfg.MaxValue }   else { -1 }
+                    $totalRam    = if ($maxMemCfg) { "$($maxMemCfg.Total) MB" }       else { "Unknown" }
+                    $recommended = if ($maxMemCfg) { "$($maxMemCfg.Recommended) MB" } else { "Unknown" }
+                    $memInUse    = if ($memInfo)   { "$($memInfo.MemoryInUseMB) MB" } else { "Unknown" }
+                    $maxDisplay  = if ($maxValue -ge 0) { "$maxValue MB" }             else { "Unknown" }
+
+                    $isDefault = $maxValue -eq 2147483647
+                    $splatCheck = @{
+                        CheckId        = "ITGC-OP-04"
+                        CheckName      = "Capacity Management"
+                        Category       = "Computer Operations"
+                        AssessmentType = "Automated"
+                        Priority       = "Medium"
+                        Status         = if ($isDefault) { "Fail" } else { "Pass" }
+                        CurrentValue   = "Max Server Memory: $maxDisplay | Total RAM: $totalRam | Recommended: $recommended | SQL Process Memory In Use: $memInUse"
+                        ExpectedValue  = "Max Server Memory explicitly configured (not at default 2147483647)"
+                        Remediation    = if ($isDefault) { "Configure Max Server Memory: Set-DbaMaxMemory -SqlInstance $instance -MaxMB <value>  -- Recommended value: $recommended" } else { $null }
+                        Reference      = "SOX §404 — Operational Controls"
+                        SqlQuery       = $qOP04
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-OP-04: $($_.Exception.Message)" }
+
+                # ITGC-OP-05 No inaccessible user databases.
+                try {
+                    $dbStatus = Get-DatabaseStatus -ctx $connSplat
+                    $count    = $dbStatus.Inaccessible.Count
+                    $splatCheck = @{
+                        CheckId        = "ITGC-OP-05"
+                        CheckName      = "All User Databases Accessible"
+                        Category       = "Computer Operations"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count -eq 0) { "All user databases accessible" } else { "$count inaccessible: $($dbStatus.Inaccessible.Name -join ', ')" }
+                        ExpectedValue  = "All user databases in an accessible state"
+                        Remediation    = "Investigate inaccessible databases in the SQL Server error log. Databases in Suspect/Recovery_Pending state may indicate corruption."
+                        Reference      = "SOX §404 — Availability"
+                        SqlQuery       = "-- Via Get-DatabaseStatus / Get-DbaDatabase. T-SQL: SELECT name, state_desc FROM sys.databases WHERE database_id > 4 AND state <> 0;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-OP-05: $($_.Exception.Message)" }
             }
 
-            # ── §4 Data Integrity & Recovery ──────────────────────────────────────
-            if (ShouldRun "4") {
-                Write-Verbose "[$instance] §4 Data Integrity & Recovery"
+            # ── §BA Backup and Recovery ───────────────────────────────────────────
+            if (ShouldRun "BA") {
+                Write-Verbose "[$instance] §BA Backup and Recovery"
 
-                # SOX-4.1 All user databases have a full backup within 24 hours.
+                # ITGC-BA-01a All user databases have a full backup within 24 hours.
                 try {
-                    $userDbs     = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
+                    $dbCfg       = Get-DatabaseConfig -ctx $connSplat
                     $staleBackup = @()
-                    foreach ($db in @($userDbs)) {
+                    foreach ($db in $dbCfg.Databases) {
                         $lastFull = Get-DbaDbBackupHistory @connSplat -Database $db.Name -LastFull -WarningAction SilentlyContinue |
                             Select-Object -First 1
                         if (-not $lastFull -or $lastFull.End -lt (Get-Date).AddHours(-24)) {
@@ -631,92 +644,26 @@ WHERE SAD.audit_action_id IN ('DAUC','CDBR','SCHM')
                     }
                     $count = $staleBackup.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-4.1"
+                        CheckId        = "ITGC-BA-01a"
                         CheckName      = "Full Backup Within 24 Hours"
-                        Category       = "Data Integrity"
+                        Category       = "Backup and Recovery"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.1"]
+                        Priority       = "Critical"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All user databases backed up within 24h" } else { "$count databases missing recent backup: $($staleBackup -join ', ')" }
                         ExpectedValue  = "Full backup within 24 hours for every user database"
-                        Remediation    = "Investigate backup job failures. Check agent job history: Get-DbaAgentJobHistory -SqlInstance $instance | Where-Object { `$_.JobName -like '*backup*' -and `$_.Status -ne 'Succeeded' }"
+                        Remediation    = "Investigate backup job failures: Get-DbaAgentJobHistory -SqlInstance $instance | Where-Object { `$_.JobName -like '*backup*' -and `$_.Status -ne 'Succeeded' }"
                         Reference      = "SOX §404 — Business Continuity"
-                        SqlQuery       = "-- Automated via Get-DbaDbBackupHistory -LastFull. T-SQL: SELECT database_name, MAX(backup_finish_date) AS LastFullBackup FROM msdb.dbo.backupset WHERE type = 'D' GROUP BY database_name;"
+                        SqlQuery       = "-- Via Get-DatabaseConfig + Get-DbaDbBackupHistory -LastFull."
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.1: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-BA-01a: $($_.Exception.Message)" }
 
-                # SOX-4.2 DBCC CHECKDB within 7 days on all user databases.
+                # ITGC-BA-01b Transaction log backed up within 4 hours for Full/BulkLogged databases.
                 try {
-                    $checkdbInfo  = Get-DbaLastGoodCheckDb @connSplat -ExcludeDatabase tempdb -WarningAction SilentlyContinue
-                    $staleCheckdb = @($checkdbInfo | Where-Object {
-                        $null -eq $_.LastGoodCheckDb -or $_.LastGoodCheckDb -lt (Get-Date).AddDays(-7)
-                    })
-                    $count = $staleCheckdb.Count
-                    $splatCheck = @{
-                        CheckId        = "SOX-4.2"
-                        CheckName      = "DBCC CHECKDB Within 7 Days"
-                        Category       = "Data Integrity"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.2"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All databases checked within 7 days" } else { "$count databases overdue: $($staleCheckdb.Database -join ', ')" }
-                        ExpectedValue  = "DBCC CHECKDB completed within 7 days on all databases"
-                        Remediation    = "Schedule integrity checks: Invoke-DbaDbIntegrityCheck -SqlInstance $instance -Database <db>  -- or use Ola Hallengren's DatabaseIntegrityCheck job."
-                        Reference      = "SOX §404 — Data Integrity"
-                        SqlQuery       = "-- Automated via Get-DbaLastGoodCheckDb. T-SQL reference: DBCC DBINFO() WITH TABLERESULTS;  -- Look for dbi_dbccLastKnownGood."
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.2: $($_.Exception.Message)" }
-
-                # SOX-4.3 No inaccessible user databases.
-                try {
-                    $problemDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.IsAccessible }
-                    $count = if ($problemDbs) { @($problemDbs).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-4.3"
-                        CheckName      = "All User Databases Accessible"
-                        Category       = "Data Integrity"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.3"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All user databases accessible" } else { "$count inaccessible: $($problemDbs.Name -join ', ')" }
-                        ExpectedValue  = "All user databases in an accessible state"
-                        Remediation    = "Investigate inaccessible databases in the SQL Server error log. Databases in Suspect/Recovery_Pending state may indicate corruption."
-                        Reference      = "SOX §404 — Availability"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase (IsAccessible). T-SQL: SELECT name, state_desc FROM sys.databases WHERE database_id > 4 AND state <> 0;  -- state 0 = ONLINE"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.3: $($_.Exception.Message)" }
-
-                # SOX-4.4 Full recovery model — Simple recovery prevents point-in-time restore.
-                try {
-                    $simpleRecovery = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { $_.RecoveryModel -eq "Simple" }
-                    $count = if ($simpleRecovery) { @($simpleRecovery).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-4.4"
-                        CheckName      = "Full Recovery Model"
-                        Category       = "Data Integrity"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.4"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Warning" }
-                        CurrentValue   = if ($count -eq 0) { "All user databases in Full or Bulk-Logged" } else { "$count in Simple recovery: $($simpleRecovery.Name -join ', ')" }
-                        ExpectedValue  = "Full recovery model for all databases in SOX scope"
-                        Remediation    = "ALTER DATABASE [<dbname>] SET RECOVERY FULL;  -- Immediately take a full backup to start the log chain, then schedule regular log backups."
-                        Reference      = "SOX §404 — Recovery Point Objectives"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name, recovery_model_desc FROM sys.databases WHERE database_id > 4 AND recovery_model_desc = 'SIMPLE';"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.4: $($_.Exception.Message)" }
-
-                # SOX-4.5 Transaction log backed up within 4 hours for Full/BulkLogged databases.
-                try {
-                    $fullRecovDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { $_.RecoveryModel -in "Full", "BulkLogged" }
+                    $dbCfg    = Get-DatabaseConfig -ctx $connSplat
                     $staleLog = @()
-                    foreach ($db in @($fullRecovDbs)) {
+                    foreach ($db in $dbCfg.FullBulkRecovery) {
                         $lastLog = Get-DbaDbBackupHistory @connSplat -Database $db.Name -LastLog -WarningAction SilentlyContinue |
                             Select-Object -First 1
                         if (-not $lastLog -or $lastLog.End -lt (Get-Date).AddHours(-4)) {
@@ -725,121 +672,65 @@ WHERE SAD.audit_action_id IN ('DAUC','CDBR','SCHM')
                     }
                     $count = $staleLog.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-4.5"
+                        CheckId        = "ITGC-BA-01b"
                         CheckName      = "Log Backup Within 4 Hours"
-                        Category       = "Data Integrity"
+                        Category       = "Backup and Recovery"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.5"]
+                        Priority       = "High"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = if ($count -eq 0) { "All Full/BulkLogged databases have recent log backups" } else { "$count databases missing log backup: $($staleLog -join ', ')" }
                         ExpectedValue  = "Log backup within 4 hours for all Full and BulkLogged databases"
-                        Remediation    = "Schedule log backup jobs. Full recovery without log backups grows the log indefinitely: BACKUP LOG [<db>] TO DISK = N'<path>';"
+                        Remediation    = "Schedule log backup jobs: BACKUP LOG [<db>] TO DISK = N'<path>';"
                         Reference      = "SOX §404 — Recovery Point Objectives"
-                        SqlQuery       = "-- Automated via Get-DbaDbBackupHistory -LastLog. T-SQL: SELECT database_name, MAX(backup_finish_date) AS LastLogBackup FROM msdb.dbo.backupset WHERE type = 'L' GROUP BY database_name;"
+                        SqlQuery       = "-- Via Get-DatabaseConfig + Get-DbaDbBackupHistory -LastLog."
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.5: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-BA-01b: $($_.Exception.Message)" }
 
-                # SOX-4.6 Page verify CHECKSUM — detects I/O corruption before it becomes permanent.
+                # ITGC-BA-01c Full recovery model — Simple recovery prevents point-in-time restore.
                 try {
-                    $noCksum = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { $_.PageVerify -ne "Checksum" }
-                    $count = if ($noCksum) { @($noCksum).Count } else { 0 }
+                    $dbCfg         = Get-DatabaseConfig -ctx $connSplat
+                    $simpleRecovery = $dbCfg.SimpleRecovery
+                    $count          = $simpleRecovery.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-4.6"
-                        CheckName      = "Page Verify CHECKSUM"
-                        Category       = "Data Integrity"
+                        CheckId        = "ITGC-BA-01c"
+                        CheckName      = "Full Recovery Model"
+                        Category       = "Backup and Recovery"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.6"]
+                        Priority       = "High"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Warning" }
+                        CurrentValue   = if ($count -eq 0) { "All user databases in Full or Bulk-Logged" } else { "$count in Simple recovery: $($simpleRecovery.Name -join ', ')" }
+                        ExpectedValue  = "Full recovery model for all databases in SOX scope"
+                        Remediation    = "ALTER DATABASE [<dbname>] SET RECOVERY FULL;  -- Take a full backup immediately to start the log chain, then schedule regular log backups."
+                        Reference      = "SOX §404 — Recovery Point Objectives"
+                        SqlQuery       = "-- Via Get-DatabaseConfig / Get-DbaDatabase. T-SQL: SELECT name, recovery_model_desc FROM sys.databases WHERE database_id > 4 AND recovery_model_desc = 'SIMPLE';"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-BA-01c: $($_.Exception.Message)" }
+
+                # ITGC-BA-02 DBCC CHECKDB within 7 days on all user databases.
+                try {
+                    $checkData = Get-CheckDbHistory -ctx $connSplat
+                    $count     = $checkData.StaleCount
+                    $splatCheck = @{
+                        CheckId        = "ITGC-BA-02"
+                        CheckName      = "DBCC CHECKDB Within 7 Days"
+                        Category       = "Backup and Recovery"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "All user databases use CHECKSUM" } else { "$count databases without CHECKSUM: $($noCksum.Name -join ', ')" }
-                        ExpectedValue  = "PAGE_VERIFY = CHECKSUM for all user databases"
-                        Remediation    = "ALTER DATABASE [<dbname>] SET PAGE_VERIFY CHECKSUM;"
+                        CurrentValue   = if ($count -eq 0) { "All databases checked within 7 days" } else { "$count databases overdue: $($checkData.Stale.Database -join ', ')" }
+                        ExpectedValue  = "DBCC CHECKDB completed within 7 days on all databases"
+                        Remediation    = "Schedule integrity checks: Invoke-DbaDbIntegrityCheck -SqlInstance $instance -Database <db>"
                         Reference      = "SOX §404 — Data Integrity"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name, page_verify_option_desc FROM sys.databases WHERE database_id > 4 AND page_verify_option_desc <> 'CHECKSUM';"
+                        SqlQuery       = "-- Via Get-CheckDbHistory / Get-DbaLastGoodCheckDb."
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.6: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-BA-02: $($_.Exception.Message)" }
 
-                # SOX-4.7 AUTO_CLOSE disabled — unexpected connection flush is an availability risk.
+                # ITGC-BA-03 Backup encryption — unencrypted backups violate SOX data security.
                 try {
-                    $autoClose = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { $_.AutoClose -eq $true }
-                    $count = if ($autoClose) { @($autoClose).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-4.7"
-                        CheckName      = "AUTO_CLOSE Disabled"
-                        Category       = "Data Integrity"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.7"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count databases with AUTO_CLOSE ON: $($autoClose.Name -join ', ')" }
-                        ExpectedValue  = "AUTO_CLOSE OFF for all user databases"
-                        Remediation    = "ALTER DATABASE [<dbname>] SET AUTO_CLOSE OFF;"
-                        Reference      = "SOX §404 — Availability"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name FROM sys.databases WHERE database_id > 4 AND is_auto_close_on = 1;"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.7: $($_.Exception.Message)" }
-
-                # SOX-4.8 AUTO_SHRINK disabled — causes fragmentation and unexpected I/O spikes.
-                try {
-                    $autoShrink = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { $_.AutoShrink -eq $true }
-                    $count = if ($autoShrink) { @($autoShrink).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-4.8"
-                        CheckName      = "AUTO_SHRINK Disabled"
-                        Category       = "Data Integrity"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["4.8"]
-                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count databases with AUTO_SHRINK ON: $($autoShrink.Name -join ', ')" }
-                        ExpectedValue  = "AUTO_SHRINK OFF for all user databases"
-                        Remediation    = "ALTER DATABASE [<dbname>] SET AUTO_SHRINK OFF;"
-                        Reference      = "SOX §404 — Data Integrity / Performance"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name FROM sys.databases WHERE database_id > 4 AND is_auto_shrink_on = 1;"
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-4.8: $($_.Exception.Message)" }
-            }
-
-            # ── §5 Encryption ─────────────────────────────────────────────────────
-            if (ShouldRun "5") {
-                Write-Verbose "[$instance] §5 Encryption"
-
-                # SOX-5.1 Network encryption — unencrypted connections expose financial data in transit.
-                try {
-                    $q5_1 = @"
-SELECT DISTINCT encrypt_option
-FROM sys.dm_exec_connections c
-WHERE net_transport <> 'Shared memory'
-  AND c.endpoint_id NOT IN (
-      SELECT endpoint_id FROM sys.database_mirroring_endpoints
-      WHERE encryption_algorithm IS NOT NULL
-  );
-"@
-                    $r5_1  = Invoke-DbaQuery @connSplat -Query $q5_1 -WarningAction SilentlyContinue
-                    $unenc = if ($r5_1) { @($r5_1 | Where-Object { $_.encrypt_option -ne "TRUE" }).Count } else { 0 }
-                    $splatCheck = @{
-                        CheckId        = "SOX-5.1"
-                        CheckName      = "Network Encryption Enforced"
-                        Category       = "Encryption"
-                        AssessmentType = "Automated"
-                        Priority       = $soxPriority["5.1"]
-                        Status         = if ($unenc -eq 0) { "Pass" } else { "Fail" }
-                        CurrentValue   = if ($unenc -eq 0) { "All non-shared-memory connections encrypted" } else { "$unenc unencrypted connection type(s) detected" }
-                        ExpectedValue  = "All non-shared-memory connections encrypted"
-                        Remediation    = "Enable Force Encryption in SQL Server Configuration Manager > SQL Server Network Configuration > Protocols > Properties > Force Encryption = Yes. A trusted certificate is required."
-                        Reference      = "SOX §404 — Data Protection in Transit"
-                        SqlQuery       = $q5_1
-                    }
-                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-5.1: $($_.Exception.Message)" }
-
-                # SOX-5.2 Backup encryption — unencrypted backups of financial data violate SOX data security.
-                try {
-                    $q5_2 = @"
+                    $qBA03 = @"
 SELECT COUNT(*) AS UnencBackups
 FROM msdb.dbo.backupset b
 JOIN sys.databases d ON b.database_name = d.name
@@ -848,72 +739,361 @@ WHERE b.key_algorithm IS NULL
   AND d.is_encrypted = 0
   AND b.backup_finish_date >= DATEADD(DAY, -30, GETDATE());
 "@
-                    $r5_2 = Invoke-DbaQuery @connSplat -Query $q5_2 -WarningAction SilentlyContinue
-                    $count = if ($r5_2) { $r5_2.UnencBackups } else { 0 }
+                    $r     = Invoke-DbaQuery @connSplat -Query $qBA03 -WarningAction SilentlyContinue
+                    $count = if ($r) { $r.UnencBackups } else { 0 }
                     $splatCheck = @{
-                        CheckId        = "SOX-5.2"
+                        CheckId        = "ITGC-BA-03"
                         CheckName      = "Backup Encryption"
-                        Category       = "Encryption"
+                        Category       = "Backup and Recovery"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["5.2"]
+                        Priority       = "High"
                         Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$count unencrypted backup records in the past 30 days"
                         ExpectedValue  = "0 — all backups encrypted or database encrypted via TDE"
-                        Remediation    = "Enable backup encryption via the WITH ENCRYPTION clause on BACKUP DATABASE, or enable TDE (TDE-encrypted databases produce automatically encrypted backups)."
+                        Remediation    = "Enable backup encryption via WITH ENCRYPTION on BACKUP DATABASE, or enable TDE (TDE databases produce automatically encrypted backups)."
                         Reference      = "SOX §404 — Data Protection at Rest"
-                        SqlQuery       = $q5_2
+                        SqlQuery       = $qBA03
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-5.2: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-BA-03: $($_.Exception.Message)" }
 
-                # SOX-5.3 TDE scope review — Manual: which databases hold financial data is environment-specific.
+                # ITGC-BA-05 Backup retention policy — oldest full backup age as retention evidence.
                 try {
-                    $unencDbs = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue |
-                        Where-Object { -not $_.EncryptionEnabled }
-                    $count = if ($unencDbs) { @($unencDbs).Count } else { 0 }
+                    $backupData  = Get-BackupHistory -ctx $connSplat
+                    $fullBackups = $backupData.History
+                    $dbCount     = 0
+                    $oldestDays  = 0
+                    if ($fullBackups) {
+                        $grouped    = $fullBackups | Group-Object -Property Database
+                        $dbCount    = $grouped.Count
+                        $oldestDate = ($fullBackups | Measure-Object -Property Start -Minimum).Minimum
+                        $oldestDays = if ($oldestDate) { [int]((Get-Date) - $oldestDate).TotalDays } else { 0 }
+                    }
                     $splatCheck = @{
-                        CheckId        = "SOX-5.3"
-                        CheckName      = "TDE Scope Review"
-                        Category       = "Encryption"
-                        AssessmentType = "Manual"
-                        Priority       = $soxPriority["5.3"]
-                        Status         = "Manual"
-                        CurrentValue   = "$count user database(s) without TDE"
-                        ExpectedValue  = "TDE enabled on all databases that contain SOX financial reporting data"
-                        Remediation    = "Identify databases in SOX scope. For each: Enable-DbaDatabaseEncryption -SqlInstance $instance -Database <dbname>  -- Requires a database master key and certificate on [master]."
-                        Reference      = "SOX §404 — Data Protection at Rest"
-                        SqlQuery       = "-- Automated via Get-DbaDatabase. T-SQL: SELECT name, is_encrypted FROM sys.databases WHERE database_id > 4 AND is_encrypted = 0;"
+                        CheckId        = "ITGC-BA-05"
+                        CheckName      = "Backup Retention Policy"
+                        Category       = "Backup and Recovery"
+                        AssessmentType = "Review"
+                        Priority       = "Medium"
+                        Status         = "Review"
+                        CurrentValue   = "$dbCount database(s) with full backup history | Oldest full backup: $oldestDays day(s) ago"
+                        ExpectedValue  = "Backup retention policy documented and enforced; SOX-scope backups retained per policy (typically 7 years for financial records)"
+                        Remediation    = "Review the oldest backup age above. Verify that the backup retention policy is documented, approved, and matches the schedule applied by your backup solution."
+                        Reference      = "SOX §404 — Data Retention"
+                        SqlQuery       = "-- Via Get-BackupHistory / Get-DbaDbBackupHistory -Type Full."
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-5.3: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-BA-05: $($_.Exception.Message)" }
+            }
 
-                # SOX-5.4 Symmetric keys use AES — weak algorithms undermine SOX data protection controls.
+            # ── §LS Logical Security / Configuration ──────────────────────────────
+            if (ShouldRun "LS") {
+                Write-Verbose "[$instance] §LS Logical Security / Configuration"
+
+                # ITGC-LS-01a Page verify CHECKSUM — detects I/O corruption before it becomes permanent.
                 try {
-                    $q5_4     = "SELECT COUNT(*) AS WeakKeys FROM sys.symmetric_keys WHERE algorithm_desc NOT IN ('AES_128','AES_192','AES_256') AND DB_ID() > 4;"
-                    $userDbs5 = Get-DbaDatabase @connSplat -ExcludeSystem -WarningAction SilentlyContinue
-                    $weakKeys = 0
-                    foreach ($db in @($userDbs5)) {
-                        $r = Invoke-DbaQuery @connSplat -Database $db.Name -Query $q5_4 -WarningAction SilentlyContinue
-                        if ($r) { $weakKeys += $r.WeakKeys }
-                    }
+                    $dbCfg   = Get-DatabaseConfig -ctx $connSplat
+                    $noCksum = $dbCfg.NoChecksum
+                    $count   = $noCksum.Count
                     $splatCheck = @{
-                        CheckId        = "SOX-5.4"
-                        CheckName      = "Symmetric Key Algorithms"
-                        Category       = "Encryption"
+                        CheckId        = "ITGC-LS-01a"
+                        CheckName      = "Page Verify CHECKSUM"
+                        Category       = "Logical Security"
                         AssessmentType = "Automated"
-                        Priority       = $soxPriority["5.4"]
+                        Priority       = "Medium"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count -eq 0) { "All user databases use CHECKSUM" } else { "$count databases without CHECKSUM: $($noCksum.Name -join ', ')" }
+                        ExpectedValue  = "PAGE_VERIFY = CHECKSUM for all user databases"
+                        Remediation    = "ALTER DATABASE [<dbname>] SET PAGE_VERIFY CHECKSUM;"
+                        Reference      = "SOX §404 — Data Integrity"
+                        SqlQuery       = "-- Via Get-DatabaseConfig / Get-DbaDatabase. T-SQL: SELECT name, page_verify_option_desc FROM sys.databases WHERE database_id > 4 AND page_verify_option_desc <> 'CHECKSUM';"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-LS-01a: $($_.Exception.Message)" }
+
+                # ITGC-LS-01b AUTO_CLOSE disabled — unexpected connection flush is an availability risk.
+                try {
+                    $dbCfg     = Get-DatabaseConfig -ctx $connSplat
+                    $autoClose = $dbCfg.AutoClose
+                    $count     = $autoClose.Count
+                    $splatCheck = @{
+                        CheckId        = "ITGC-LS-01b"
+                        CheckName      = "AUTO_CLOSE Disabled"
+                        Category       = "Logical Security"
+                        AssessmentType = "Automated"
+                        Priority       = "Low"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count databases with AUTO_CLOSE ON: $($autoClose.Name -join ', ')" }
+                        ExpectedValue  = "AUTO_CLOSE OFF for all user databases"
+                        Remediation    = "ALTER DATABASE [<dbname>] SET AUTO_CLOSE OFF;"
+                        Reference      = "SOX §404 — Availability"
+                        SqlQuery       = "-- Via Get-DatabaseConfig / Get-DbaDatabase. T-SQL: SELECT name FROM sys.databases WHERE database_id > 4 AND is_auto_close_on = 1;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-LS-01b: $($_.Exception.Message)" }
+
+                # ITGC-LS-01c AUTO_SHRINK disabled — causes fragmentation and unexpected I/O spikes.
+                try {
+                    $dbCfg      = Get-DatabaseConfig -ctx $connSplat
+                    $autoShrink = $dbCfg.AutoShrink
+                    $count      = $autoShrink.Count
+                    $splatCheck = @{
+                        CheckId        = "ITGC-LS-01c"
+                        CheckName      = "AUTO_SHRINK Disabled"
+                        Category       = "Logical Security"
+                        AssessmentType = "Automated"
+                        Priority       = "Medium"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count -eq 0) { "None" } else { "$count databases with AUTO_SHRINK ON: $($autoShrink.Name -join ', ')" }
+                        ExpectedValue  = "AUTO_SHRINK OFF for all user databases"
+                        Remediation    = "ALTER DATABASE [<dbname>] SET AUTO_SHRINK OFF;"
+                        Reference      = "SOX §404 — Data Integrity / Performance"
+                        SqlQuery       = "-- Via Get-DatabaseConfig / Get-DbaDatabase. T-SQL: SELECT name FROM sys.databases WHERE database_id > 4 AND is_auto_shrink_on = 1;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-LS-01c: $($_.Exception.Message)" }
+
+                # ITGC-LS-01d TDE scope review — list databases without TDE; scoping is a business decision.
+                try {
+                    $tde      = Get-TdeStatus -ctx $connSplat
+                    $nameList = if ($tde.UnencryptedCount -gt 0) {
+                        "Unencrypted: $($tde.UnencryptedNames -join ', ')"
+                    } else {
+                        "All $($tde.TotalCount) user database(s) are TDE-encrypted"
+                    }
+                    $splatCheck = @{
+                        CheckId        = "ITGC-LS-01d"
+                        CheckName      = "TDE Scope Review"
+                        Category       = "Logical Security"
+                        AssessmentType = "Review"
+                        Priority       = "Medium"
+                        Status         = "Review"
+                        CurrentValue   = "Encrypted: $($tde.EncryptedCount) | Unencrypted: $($tde.UnencryptedCount) — $nameList"
+                        ExpectedValue  = "TDE enabled on all databases that contain SOX financial reporting data"
+                        Remediation    = "Identify databases in SOX scope from the list above. For each in-scope database: Enable-DbaDatabaseEncryption -SqlInstance $instance -Database <dbname>  -- Requires a database master key and certificate on [master]."
+                        Reference      = "SOX §404 — Data Protection at Rest"
+                        SqlQuery       = "-- Via Get-TdeStatus / Get-DbaDatabase. T-SQL: SELECT name, is_encrypted FROM sys.databases WHERE database_id > 4 AND is_encrypted = 0;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-LS-01d: $($_.Exception.Message)" }
+
+                # ITGC-LS-01e Symmetric keys use AES — weak algorithms undermine data protection.
+                try {
+                    $symData  = Get-SymmetricKeys -ctx $connSplat
+                    $weakKeys = $symData.WeakCount
+                    $splatCheck = @{
+                        CheckId        = "ITGC-LS-01e"
+                        CheckName      = "Symmetric Key Algorithms"
+                        Category       = "Logical Security"
+                        AssessmentType = "Automated"
+                        Priority       = "Low"
                         Status         = if ($weakKeys -eq 0) { "Pass" } else { "Fail" }
                         CurrentValue   = "$weakKeys non-AES symmetric key(s)"
                         ExpectedValue  = "0 — all symmetric keys use AES_128, AES_192, or AES_256"
-                        Remediation    = "Recreate non-AES symmetric keys using a supported algorithm. Per-database: SELECT name, algorithm_desc FROM sys.symmetric_keys WHERE algorithm_desc NOT IN ('AES_128','AES_192','AES_256')."
+                        Remediation    = "Recreate non-AES symmetric keys. Per-database: SELECT name, algorithm_desc FROM sys.symmetric_keys WHERE algorithm_desc NOT IN ('AES_128','AES_192','AES_256')."
                         Reference      = "SOX §404 — Data Protection at Rest"
-                        SqlQuery       = $q5_4
+                        SqlQuery       = $symData.Query
                     }
                     & $emit (New-DakCheckResult @sharedParams @splatCheck)
-                } catch { Write-Warning "[$instance] SOX-5.4: $($_.Exception.Message)" }
+                } catch { Write-Warning "[$instance] ITGC-LS-01e: $($_.Exception.Message)" }
+
+                # ITGC-LS-02 SQL Server patch level — no more than 1 CU behind.
+                try {
+                    $buildResult = Test-DbaBuild @connSplat -MaxBehind "1CU" -WarningAction SilentlyContinue | Select-Object -First 1
+                    if ($buildResult) {
+                        $splatCheck = @{
+                            CheckId        = "ITGC-LS-02"
+                            CheckName      = "SQL Server Patch Level"
+                            Category       = "Logical Security"
+                            AssessmentType = "Automated"
+                            Priority       = "High"
+                            Status         = if ($buildResult.Compliant) { "Pass" } else { "Fail" }
+                            CurrentValue   = "$($buildResult.Build) — $($buildResult.BuildLevel)"
+                            ExpectedValue  = "Within 1 Cumulative Update of the latest release for this SQL Server version"
+                            Remediation    = "Apply the latest Cumulative Update: https://docs.microsoft.com/sql/database-engine/install-windows/latest-updates-for-microsoft-sql-server"
+                            Reference      = "SOX §404 — Vulnerability Management / Patch Controls"
+                            SqlQuery       = "SELECT @@VERSION;  -- Via Test-DbaBuild -MaxBehind '1CU'"
+                        }
+                        & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                    }
+                } catch { Write-Warning "[$instance] ITGC-LS-02: $($_.Exception.Message)" }
+
+                # ITGC-LS-05 Network encryption — unencrypted connections expose financial data in transit.
+                try {
+                    $netEnc = Get-NetworkEncryption -ctx $connSplat
+                    $unenc  = $netEnc.UnencryptedCount
+                    $splatCheck = @{
+                        CheckId        = "ITGC-LS-05"
+                        CheckName      = "Network Encryption Enforced"
+                        Category       = "Logical Security"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($unenc -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($unenc -eq 0) { "All non-shared-memory connections encrypted" } else { "$unenc unencrypted connection type(s) detected" }
+                        ExpectedValue  = "All non-shared-memory connections encrypted"
+                        Remediation    = "Enable Force Encryption in SQL Server Configuration Manager > Protocols > Properties > Force Encryption = Yes. A trusted certificate is required."
+                        Reference      = "SOX §404 — Data Protection in Transit"
+                        SqlQuery       = $netEnc.Query
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-LS-05: $($_.Exception.Message)" }
             }
 
-            Write-Verbose "[$instance] SOX assessment complete"
+            # ── §AL Audit Logging ─────────────────────────────────────────────────
+            if (ShouldRun "AL") {
+                Write-Verbose "[$instance] §AL Audit Logging"
+
+                # ITGC-AL-01a SQL Server Audit — required action groups for SOX detective controls.
+                try {
+                    $auditData   = Get-SqlAudits -ctx $connSplat
+                    $required    = @(
+                        "FAILED_LOGIN_GROUP",
+                        "SUCCESSFUL_LOGIN_GROUP",
+                        "DATABASE_ROLE_MEMBER_CHANGE_GROUP",
+                        "SERVER_ROLE_MEMBER_CHANGE_GROUP",
+                        "AUDIT_CHANGE_GROUP"
+                    )
+                    $foundGroups = $auditData.ActionNames | Where-Object { $_ -in $required }
+                    $missing     = $required | Where-Object { $_ -notin $auditData.ActionNames }
+                    $compliant   = $missing.Count -eq 0
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AL-01a"
+                        CheckName      = "SQL Server Audit — SOX Action Groups"
+                        Category       = "Audit Logging"
+                        AssessmentType = "Automated"
+                        Priority       = "Critical"
+                        Status         = if ($compliant) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($auditData.ActionNames.Count -eq 0) { "No enabled audit" } else { "$(@($foundGroups).Count) of $($required.Count) required groups captured" }
+                        ExpectedValue  = "All 5 SOX action groups enabled in an active audit and specification"
+                        Remediation    = if ($compliant) { $null } else { "Missing groups: $($missing -join ', '). Create a SERVER AUDIT and SERVER AUDIT SPECIFICATION covering these action groups." }
+                        Reference      = "SOX §404 — Audit Trail"
+                        SqlQuery       = $auditData.SpecQuery
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AL-01a: $($_.Exception.Message)" }
+
+                # ITGC-AL-01b Login audit level — failure events are the minimum for SOX detective controls.
+                try {
+                    $auditLevel = Get-LoginAuditLevel -ctx $connSplat
+                    $level      = $auditLevel.Level
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AL-01b"
+                        CheckName      = "Login Audit Level"
+                        Category       = "Audit Logging"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($level -in "all", "failure") { "Pass" } else { "Fail" }
+                        CurrentValue   = $level
+                        ExpectedValue  = "failure or all"
+                        Remediation    = "EXEC xp_instance_regwrite N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'AuditLevel', REG_DWORD, 2  -- SQL Server service restart required."
+                        Reference      = "SOX §404 — Audit Trail"
+                        SqlQuery       = "EXEC xp_loginconfig 'audit level';"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AL-01b: $($_.Exception.Message)" }
+
+                # ITGC-AL-01c Default trace enabled — baseline change and security event evidence.
+                try {
+                    $traceData = Get-DefaultTrace -ctx $connSplat
+                    if ($traceData.Config) {
+                        $splatCheck = @{
+                            CheckId        = "ITGC-AL-01c"
+                            CheckName      = "Default Trace Enabled"
+                            Category       = "Audit Logging"
+                            AssessmentType = "Automated"
+                            Priority       = "Low"
+                            Status         = if ($traceData.Enabled) { "Pass" } else { "Fail" }
+                            CurrentValue   = $traceData.Config.RunningValue.ToString()
+                            ExpectedValue  = "1"
+                            Remediation    = "EXEC sp_configure 'default trace enabled', 1; RECONFIGURE;"
+                            Reference      = "SOX §404 — Audit Trail"
+                            SqlQuery       = "SELECT name, value_in_use AS RunningValue FROM sys.configurations WHERE name = 'default trace enabled';"
+                        }
+                        & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                    }
+                } catch { Write-Warning "[$instance] ITGC-AL-01c: $($_.Exception.Message)" }
+
+                # ITGC-AL-01d Audit captures server and database role membership changes.
+                try {
+                    $auditData = Get-SqlAudits -ctx $connSplat
+                    $found     = ($auditData.EnabledRows | Where-Object { $_.audit_action_id -in 'ADSP', 'ADDP' }).Count -gt 0
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AL-01d"
+                        CheckName      = "Audit — Role Membership Changes"
+                        Category       = "Audit Logging"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($found) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($found) { "Configured" } else { "Not configured" }
+                        ExpectedValue  = "SERVER_ROLE_MEMBER_CHANGE_GROUP and DATABASE_ROLE_MEMBER_CHANGE_GROUP captured"
+                        Remediation    = "Add SERVER_ROLE_MEMBER_CHANGE_GROUP and DATABASE_ROLE_MEMBER_CHANGE_GROUP to your active server audit specification."
+                        Reference      = "SOX §404 — Change Accountability"
+                        SqlQuery       = $auditData.SpecQuery
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AL-01d: $($_.Exception.Message)" }
+
+                # ITGC-AL-01e Audit captures DDL and schema changes to financial database objects.
+                try {
+                    $auditData = Get-SqlAudits -ctx $connSplat
+                    $found     = ($auditData.EnabledRows | Where-Object { $_.audit_action_id -in 'DAUC', 'CDBR', 'SCHM' }).Count -gt 0
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AL-01e"
+                        CheckName      = "Audit — DDL / Schema Changes"
+                        Category       = "Audit Logging"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($found) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($found) { "Configured" } else { "Not configured" }
+                        ExpectedValue  = "SCHEMA_OBJECT_CHANGE_GROUP or DATABASE_CHANGE_GROUP captured"
+                        Remediation    = "Add SCHEMA_OBJECT_CHANGE_GROUP to your active server audit specification. For database-level coverage: CREATE DATABASE AUDIT SPECIFICATION covering SCHEMA_OBJECT_CHANGE_GROUP on each financial database."
+                        Reference      = "SOX §404 — Change Management"
+                        SqlQuery       = $auditData.SpecQuery
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AL-01e: $($_.Exception.Message)" }
+
+                # ITGC-AL-02 Audit failure mode — no enabled audit should silently continue on failure.
+                try {
+                    $auditData = Get-SqlAudits -ctx $connSplat
+                    $count     = $auditData.ContinueAudits.Count
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AL-02"
+                        CheckName      = "Audit Failure Mode"
+                        Category       = "Audit Logging"
+                        AssessmentType = "Automated"
+                        Priority       = "High"
+                        Status         = if ($count -eq 0) { "Pass" } else { "Fail" }
+                        CurrentValue   = if ($count -eq 0) { "No audits configured to silently continue on failure" } else { "$count audit(s) set to CONTINUE on failure: $($auditData.ContinueAudits.name -join ', ')" }
+                        ExpectedValue  = "All enabled audits configured to FAIL_OPERATION or SHUTDOWN on failure"
+                        Remediation    = "ALTER SERVER AUDIT [<name>] WITH (ON_FAILURE = FAIL_OPERATION);  -- Ensures audit gaps cannot occur silently."
+                        Reference      = "SOX §404 — Audit Trail Integrity"
+                        SqlQuery       = $auditData.SpecQuery
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AL-02: $($_.Exception.Message)" }
+
+                # ITGC-AL-04 Error log retention >= 12 — SOX audit windows commonly require 12 months.
+                try {
+                    $retData = Get-ErrorLogRetention -ctx $connSplat
+                    $splatCheck = @{
+                        CheckId        = "ITGC-AL-04"
+                        CheckName      = "Error Log Retention"
+                        Category       = "Audit Logging"
+                        AssessmentType = "Automated"
+                        Priority       = "Medium"
+                        Status         = if ($retData.Count -ge 12) { "Pass" } else { "Fail" }
+                        CurrentValue   = $retData.Display
+                        ExpectedValue  = "12 or more"
+                        Remediation    = "Set-DbaErrorLogConfig -SqlInstance $instance -LogCount 12"
+                        Reference      = "SOX §404 — Audit Trail Retention"
+                        SqlQuery       = "-- Via Get-ErrorLogRetention / Get-DbaErrorLogConfig. T-SQL: DECLARE @n INT; EXEC master.sys.xp_instance_regread N'HKEY_LOCAL_MACHINE', N'Software\Microsoft\MSSQLServer\MSSQLServer', N'NumErrorLogs', @n OUTPUT; SELECT ISNULL(@n, 6) AS NumberOfLogFiles;"
+                    }
+                    & $emit (New-DakCheckResult @sharedParams @splatCheck)
+                } catch { Write-Warning "[$instance] ITGC-AL-04: $($_.Exception.Message)" }
+            }
+
+            Write-Verbose "[$instance] SOX ITGC assessment complete"
         }
     }
 

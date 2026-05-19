@@ -12,7 +12,9 @@ $publicFunctions = @()
 foreach ($file in [System.IO.Directory]::GetFiles($publicDir, "*.ps1", [System.IO.SearchOption]::AllDirectories)) {
     try {
         . $file
-        $publicFunctions += [System.IO.Path]::GetFileNameWithoutExtension($file)
+        if ($file -notmatch '[\\/]Private[\\/]') {
+            $publicFunctions += [System.IO.Path]::GetFileNameWithoutExtension($file)
+        }
     } catch {
         Write-Error "Failed to import $file`: $_"
     }

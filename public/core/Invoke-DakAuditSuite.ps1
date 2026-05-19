@@ -19,10 +19,10 @@ function Invoke-DakAuditSuite {
         Supported frameworks and implementation status:
             CIS      — CIS Microsoft SQL Server 2025 Benchmark v1.0.0  (full — 48 checks)
             DbConfig — Instance/DB configuration health and security    (full — 92 checks)
-            SOX      — Sarbanes-Oxley IT general controls               (full — 31 checks)
+            SOX      — Sarbanes-Oxley ITGC (AC/CM/OP/BA/LS/AL)           (full — 40 checks)
             STIG     — DISA SQL Server STIG                             (pending)
             PCI      — PCI DSS v4.0.1                                    (full — 34 checks)
-            SOC2     — SOC 2 Trust Service Criteria                     (pending)
+            SOC2     — SOC 2 TSC CC1/CC4–CC9 (database-relevant)          (full — 31 checks)
 
     .PARAMETER SqlInstance
         One or more SQL Server instances to audit. Accepts pipeline input by value
@@ -163,7 +163,17 @@ function Invoke-DakAuditSuite {
                 }
             }
 
-            foreach ($fw in @("STIG", "SOC2")) {
+            if ($runAll -or $Framework -contains "SOC2") {
+                Write-Verbose "[$instance] Running SOC 2 checks"
+                if ($saveResults) {
+                    $soc2Results = Test-DakSOC2Benchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly
+                    foreach ($r in $soc2Results) { $allResults += $r }
+                } else {
+                    Test-DakSOC2Benchmark -SqlInstance $instance @credSplat -FailedOnly:$FailedOnly -Quiet
+                }
+            }
+
+            foreach ($fw in @("STIG")) {
                 if ($runAll -or $Framework -contains $fw) {
                     if ($fw -notin $notImplemented) {
                         Write-Warning "$fw checks are not yet implemented. Skipping."
