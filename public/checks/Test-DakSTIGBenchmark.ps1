@@ -281,7 +281,7 @@ function Test-DakSTIGBenchmark {
 
                 # V-271264 — SPN / Kerberos authentication
                 try {
-                    $spnResult = Test-DbaSpn @connSplat -WarningAction SilentlyContinue
+                    $spnResult = Test-DbaSpn -ComputerName $computerName -WarningAction SilentlyContinue
                     $spnFail   = @($spnResult | Where-Object { $_.Error })
                     $splatCheck = @{
                         CheckId        = "V-271264"
@@ -398,7 +398,7 @@ WHERE dp.authentication_type = 2 AND d.containment = 1;
 
                 # V-271309 — Force encryption on connections
                 try {
-                    $proto = Get-DbaInstanceProtocol @connSplat -WarningAction SilentlyContinue |
+                    $proto = Get-DbaInstanceProtocol -ComputerName $computerName -WarningAction SilentlyContinue |
                         Where-Object { $_.Name -eq "tcp" } | Select-Object -First 1
                     $forceEnc = if ($proto) { [bool]$proto.ForceEncryption } else { $null }
                     $splatCheck = @{
@@ -772,7 +772,7 @@ WHERE O.is_ms_shipped = 0;
 
                 # V-271304 — Protocols restricted (Named Pipes / VIA disabled)
                 try {
-                    $protos = Get-DbaInstanceProtocol @connSplat -WarningAction SilentlyContinue
+                    $protos = Get-DbaInstanceProtocol -ComputerName $computerName -WarningAction SilentlyContinue
                     $enabledProtos = @($protos | Where-Object { $_.IsEnabled -and $_.Name -notmatch '^(tcp|sm)$' })
                     $splatCheck = @{
                         CheckId        = "V-271304"
@@ -1045,9 +1045,8 @@ ORDER BY dpr.name;
 
                 # V-271358 — SQL Server services use unique dedicated accounts
                 try {
-                    $svcData5  = Get-DbaService @connSplat -WarningAction SilentlyContinue
-                    $svcAccounts = @($svcData5 | Select-Object -ExpandProperty ServiceAccount -Unique)
-                    $dupAccounts = @($svcData5 | Group-Object ServiceAccount |
+                    $svcData5    = Get-DbaService @connSplat -WarningAction SilentlyContinue
+                    $dupAccounts = @($svcData5 | Group-Object StartName |
                         Where-Object { $_.Count -gt 1 -and $_.Name -notmatch 'LocalSystem|NetworkService|NT AUTHORITY' } |
                         Select-Object -ExpandProperty Name)
                     $splatCheck = @{
